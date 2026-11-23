@@ -1,0 +1,41 @@
+[package]
+name = "ota-host"
+version = "0.1.0"
+description = "OTA-Host - MCUboot OTA 上位机（串口监视 / imgtool 签名 / 升级触发）"
+authors = ["ota-boot"]
+edition = "2021"
+
+[lib]
+name = "ota_host_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serialport = "4.10"
+probe-rs = "0.32"
+nusb = "0.1.14"
+sha2 = "0.10"
+base64 = "0.22"
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+parking_lot = "0.12"
+chrono = { version = "0.4", features = ["serde"] }
+
+[target.'cfg(windows)'.dependencies]
+libloading = "0.7"
+winreg = "0.55"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,134 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 220 43% 97%;
+  --foreground: 228 18% 18%;
+  --card: 0 0% 100%;
+  --card-foreground: 228 18% 18%;
+  --primary: 224 72% 56%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 217 40% 93%;
+  --secondary-foreground: 226 20% 24%;
+  --muted: 220 32% 92%;
+  --muted-foreground: 222 15% 38%;
+  --accent: 210 80% 92%;
+  --accent-foreground: 225 28% 22%;
+  --destructive: 0 72% 56%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 150 55% 42%;
+  --success-foreground: 0 0% 100%;
+  --warning: 38 92% 52%;
+  --warning-foreground: 28 92% 12%;
+  --border: 220 26% 84%;
+  --input: var(--border);
+  --ring: 224 72% 56%;
+  --radius: 1rem;
+  --surface-1: rgba(255, 255, 255, 0.92);
+  --surface-2: rgba(245, 248, 255, 0.94);
+  --surface-overlay: hsl(var(--card));
+  --terminal-rx: 34 140 62;
+  --terminal-tx: 44 116 232;
+}
+
+.dark {
+  --background: 224 28% 10%;
+  --foreground: 214 38% 96%;
+  --card: 224 22% 14%;
+  --card-foreground: 214 38% 96%;
+  --primary: 217 92% 74%;
+  --primary-foreground: 226 30% 14%;
+  --secondary: 223 20% 20%;
+  --secondary-foreground: 214 38% 96%;
+  --muted: 223 18% 18%;
+  --muted-foreground: 217 16% 72%;
+  --accent: 224 18% 20%;
+  --accent-foreground: 214 38% 96%;
+  --destructive: 0 82% 68%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 149 48% 54%;
+  --success-foreground: 0 0% 100%;
+  --warning: 42 96% 66%;
+  --warning-foreground: 226 30% 14%;
+  --border: 224 14% 28%;
+  --ring: 217 92% 74%;
+  --surface-1: rgba(28, 34, 49, 0.9);
+  --surface-2: rgba(35, 43, 61, 0.92);
+  --surface-overlay: hsl(var(--card));
+  --terminal-rx: 110 212 160;
+  --terminal-tx: 132 178 255;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  font-family: "Segoe UI Variable", "Noto Sans SC", "Microsoft YaHei UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+::selection {
+  background: hsl(var(--primary) / 0.18);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: hsl(var(--muted-foreground) / 0.28);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.42);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: saturate(0.35);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid hsl(var(--ring) / 0.35);
+  outline-offset: 1px;
+}
+
+.surface-shell {
+  border: 1px solid hsl(var(--border) / 0.55);
+  background: var(--surface-1);
+  box-shadow: 0 4px 14px rgba(73, 93, 142, 0.08);
+}
+
+.surface-card {
+  border: 1px solid hsl(var(--border) / 0.6);
+  background: var(--surface-1);
+  box-shadow: 0 2px 8px rgba(73, 93, 142, 0.06);
+}
+
+.terminal-font {
+  font-family: "Cascadia Mono", "JetBrains Mono", Consolas, "Courier New", monospace;
+}

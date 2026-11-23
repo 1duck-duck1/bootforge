@@ -1,0 +1,217 @@
+use crate::state::{DataSource, SerialStats};
+use serialport::{DataBits, FlowControl, Parity, SerialPort, StopBits};
+use std::io::{Read, Write};
+use std::time::Duration;
+
+const READ_TIMEOUT: Duration = Duration::from_millis(50);
+const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+extern "system" {
+    /// Sets the OS-level serial driver RX/TX queue sizes for an open COM handle.
+    /// Default on Windows is typically 4 KB which overflows easily at 921600 baud.
+    fn SetupComm(hFile: *mut std::ffi::c_void, dwInQueue: u32, dwOutQueue: u32) -> i32;
+}
+
+/// Local serial port implementation
+pub struct LocalSerial {
+    port_name: String,
+    baud_rate: u32,
+    data_bits: DataBits,
+    stop_bits: StopBits,
+    parity: Parity,
+    flow_control: FlowControl,
+    dtr: bool,
+    rts: bool,
+    port: Option<Box<dyn SerialPort>>,
+    stats: SerialStats,
+}
+
+impl LocalSerial {
+    pub fn new(
+        port_name: String,
+        baud_rate: u32,
+        data_bits: u8,
+        stop_bits: u8,
+        parity: &str,
+        flow_control: &str,
+        dtr: bool,
+        rts: bool,
+    ) -> Self {
+        Self {
+            port_name,
+            baud_rate,
+            data_bits: match data_bits {
+                5 => DataBits::Five,
+                6 => DataBits::Six,
+                7 => DataBits::Seven,
+                _ => DataBits::Eight,
+            },
+            stop_bits: match stop_bits {
+                2 => StopBits::Two,
+                _ => StopBits::One,
+            },
+            parity: match parity.to_lowercase().as_str() {
+                "even" => Parity::Even,
+                "odd" => Parity::Odd,
+                _ => Parity::None,
+            },
+            flow_control: match flow_control.to_lowercase().as_str() {
+                "hardware" | "hw" => FlowControl::Hardware,
+                "software" | "sw" => FlowControl::Software,
+                _ => FlowControl::None,
+            },
+            dtr,
+            rts,
+            port: None,
+            stats: SerialStats::default(),
+        }
+    }
+}
+
+impl DataSource for LocalSerial {
+    fn connect(&mut self) -> Result<(), String> {
+        if self.port.is_some() {
+            return Ok(());
+        }
+
+        // 50ms timeout：read 在数据到达时立即返回，没数据时等到 50ms。
+        // 专用读线程会一直 block 在这里，OS 驱动 FIFO 不会因为我们慢而溢出。
+        let mut native_port = serialport::new(&self.port_name, self.baud_rate)
+            .data_bits(self.data_bits)
+            .stop_bits(self.stop_bits)
+            .parity(self.parity)
+            .flow_control(self.flow_control)
+            .timeout(READ_TIMEOUT)
+            .open_native()
+            .map_err(|e| format!("Failed to open serial port: {}", e))?;
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::io::AsRawHandle;
+            let handle = native_port.as_raw_handle();
+            // 64 KB RX / 8 KB TX：高 baud 下能扛住调度抖动而不丢字节。
+            let ok = unsafe { SetupComm(handle as *mut _, 65536, 8192) };
+            if ok == 0 {
+                eprintln!("SetupComm 调用失败，OS 驱动 RX 队列保持默认大小");
+            }
+        }
+
+        // 按配置设置 DTR/RTS 控制线（默认关）。
+        if let Err(e) = native_port.write_data_terminal_ready(self.dtr) {
+            eprintln!("设置 DTR={} 失败: {}", self.dtr, e);
+        }
+        // 硬件流控时 RTS 由驱动接管，手动置位会破坏流控，故仅在无流控时设置。
+        if matches!(self.flow_control, FlowControl::None) {
+            if let Err(e) = native_port.write_request_to_send(self.rts) {
+                eprintln!("设置 RTS={} 失败: {}", self.rts, e);
+            }
+        }
+
+        self.port = Some(Box::new(native_port));
+        self.stats = SerialStats::default();
+        Ok(())
+    }
+
+    fn disconnect(&mut self) -> Result<(), String> {
+        self.port = None;
+        Ok(())
+    }
+
+    fn write(&mut self, data: &[u8]) -> Result<usize, String> {
+        let port = self
+            .port
+            .as_mut()
+            .ok_or_else(|| "Serial port not connected".to_string())?;
+
+        // serialport 的 timeout 同时控制读写；短读超时不够发送文件分块。
+        port.set_timeout(WRITE_TIMEOUT)
+            .map_err(|e| format!("Failed to set serial write timeout: {}", e))?;
+        let result = port
+            .write_all(data)
+            .and_then(|_| port.flush())
+            .map_err(|e| format!("Failed to write to serial port: {}", e));
+        let restore_result = port
+            .set_timeout(READ_TIMEOUT)
+            .map_err(|e| format!("Failed to restore serial read timeout: {}", e));
+        result?;
+        restore_result?;
+
+        let written = data.len();
+        self.stats.bytes_sent += written as u64;
+        Ok(written)
+    }
+
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, String> {
+        let port = self
+            .port
+            .as_mut()
+            .ok_or_else(|| "Serial port not connected".to_string())?;
+
+        match port.read(buf) {
+            Ok(n) => {
+                self.stats.bytes_received += n as u64;
+                Ok(n)
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => Ok(0),
+            Err(e) => Err(format!("Failed to read from serial port: {}", e)),
+        }
+    }
+
+    fn is_connected(&self) -> bool {
+        self.port.is_some()
+    }
+
+    fn name(&self) -> String {
+        format!("{}@{}", self.port_name, self.baud_rate)
+    }
+
+    fn stats(&self) -> SerialStats {
+        self.stats.clone()
+    }
+
+    fn reset_stats(&mut self) {
+        self.stats = SerialStats::default();
+    }
+}
+
+/// List available serial ports
+pub fn list_serial_ports() -> Result<Vec<SerialPortInfo>, String> {
+    let ports = serialport::available_ports().map_err(|e| format!("Failed to list serial ports: {}", e))?;
+
+    Ok(ports
+        .into_iter()
+        .map(|p| {
+            let (port_type, description, manufacturer, serial_number) = match &p.port_type {
+                serialport::SerialPortType::UsbPort(info) => (
+                    "USB".to_string(),
+                    info.product.clone(),
+                    info.manufacturer.clone(),
+                    info.serial_number.clone(),
+                ),
+                serialport::SerialPortType::PciPort => ("PCI".to_string(), None, None, None),
+                serialport::SerialPortType::BluetoothPort => ("Bluetooth".to_string(), None, None, None),
+                serialport::SerialPortType::Unknown => ("Unknown".to_string(), None, None, None),
+            };
+
+            SerialPortInfo {
+                name: p.port_name,
+                port_type,
+                description,
+                manufacturer,
+                serial_number,
+            }
+        })
+        .collect())
+}
+
+/// Serial port information
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SerialPortInfo {
+    pub name: String,
+    pub port_type: String,
+    pub description: Option<String>,
+    pub manufacturer: Option<String>,
+    pub serial_number: Option<String>,
+}
