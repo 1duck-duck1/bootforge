@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { nextSerialLineId, useSerialStore, type SerialLine } from "@/stores/serialStore";
+import { useSerialChartStore } from "@/stores/serialChartStore";
 import type { SerialDataEvent, SerialStatusEvent } from "@/lib/tauri";
 import { useLogStore } from "@/stores/logStore";
 
@@ -60,6 +61,8 @@ export function useSerialEvents() {
           const batch = batchRef.current;
           batchRef.current = [];
           if (batch.length === 0) return;
+          // 图表解析先行：终端暂停只影响日志显示，不影响数据采样
+          useSerialChartStore.getState().ingest(batch);
           if (useSerialStore.getState().paused) {
             pausedBuffer.push(...batch);
             if (pausedBuffer.length > 5000) {
@@ -127,15 +130,15 @@ export function useSerialEvents() {
         const pending = pendingRef.current;
         pendingRef.current = null;
         if (pending.bytes.length > 0) {
-          addLines([
-            {
-              id: nextSerialLineId(),
-              text: decode(pending.bytes),
-              bytes: pending.bytes,
-              timestamp: pending.timestamp,
-              direction: "rx",
-            },
-          ]);
+          const line: SerialLine = {
+            id: nextSerialLineId(),
+            text: decode(pending.bytes),
+            bytes: pending.bytes,
+            timestamp: pending.timestamp,
+            direction: "rx",
+          };
+          useSerialChartStore.getState().ingest([line]);
+          addLines([line]);
         }
       }
       useSerialStore.getState().applyStatus(connected, running, error);

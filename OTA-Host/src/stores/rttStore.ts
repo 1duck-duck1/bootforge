@@ -9,6 +9,7 @@ import {
 } from "@/lib/tauri";
 import { parseHexBytes, parseHexNumber } from "@/lib/hex";
 import { useLogStore } from "./logStore";
+import { normalizeDataViewMode, type DataViewMode } from "@/lib/dataView";
 
 export type RttLineEnding = "none" | "lf" | "crlf" | "cr";
 
@@ -57,6 +58,7 @@ interface RttStore {
   autoScroll: boolean;
   paused: boolean;
   search: string;
+  viewMode: DataViewMode;
 
   // 启动配置
   scanMode: "auto" | "exact";
@@ -81,6 +83,7 @@ interface RttStore {
   setAutoScroll: (value: boolean) => void;
   setPaused: (value: boolean) => void;
   setSearch: (value: string) => void;
+  setViewMode: (mode: DataViewMode) => void;
   setStartOptions: (options: {
     scanMode?: "auto" | "exact";
     address?: string;
@@ -107,6 +110,7 @@ export const useRttStore = create<RttStore>()(
       autoScroll: true,
       paused: false,
       search: "",
+      viewMode: "text",
 
       scanMode: "auto",
       address: "",
@@ -242,6 +246,7 @@ export const useRttStore = create<RttStore>()(
       setAutoScroll: (autoScroll) => set({ autoScroll }),
       setPaused: (paused) => set({ paused }),
       setSearch: (search) => set({ search }),
+      setViewMode: (viewMode) => set({ viewMode }),
       setStartOptions: (options) =>
         set((state) => ({
           scanMode: options.scanMode ?? state.scanMode,
@@ -252,6 +257,15 @@ export const useRttStore = create<RttStore>()(
     }),
     {
       name: "ota-host-rtt",
+      // 兼容旧版本持久化数据：viewMode 的 "terminal" 迁移为 "text"
+      merge: (persisted, current) => {
+        const saved = (persisted ?? {}) as Partial<RttStore> & { viewMode?: unknown };
+        return {
+          ...current,
+          ...saved,
+          viewMode: normalizeDataViewMode(saved.viewMode) ?? current.viewMode,
+        };
+      },
       partialize: (state) => ({
         scanMode: state.scanMode,
         address: state.address,
@@ -260,6 +274,7 @@ export const useRttStore = create<RttStore>()(
         showTimestamp: state.showTimestamp,
         hexView: state.hexView,
         autoScroll: state.autoScroll,
+        viewMode: state.viewMode,
       }),
     }
   )

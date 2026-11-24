@@ -26,7 +26,11 @@ export function ModeSwitch({
         const Icon = workspace.navigationIcon;
         const active = mode === workspace.id;
         return (
-          <Tooltip key={workspace.id} label={`${workspace.label} (Ctrl+${index + 1})`}>
+          <Tooltip
+            key={workspace.id}
+            label={`${workspace.label} (Ctrl+${index + 1})`}
+            placement={orientation === "vertical" ? "right" : "bottom"}
+          >
             <button
               type="button"
               aria-label={workspace.label}

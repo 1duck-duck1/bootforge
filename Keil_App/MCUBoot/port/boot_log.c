@@ -9,6 +9,7 @@
 #include <string.h>
 #include "stm32f4xx_hal.h"
 #include "usart.h"
+#include "SEGGER_RTT.h"
 #include "mcuboot_config/mcuboot_logging.h"
 
 #define BOOT_LOG_BUF_SIZE 128
@@ -30,5 +31,7 @@ void boot_log_printf(const char *fmt, ...)
         len = (int)sizeof(buf) - 1;
     }
 
+    /* 同一份日志同时输出到 RTT 通道 0 和 USART2 */
+    (void)SEGGER_RTT_Write(0, buf, (unsigned)len);
     (void)HAL_UART_Transmit(&huart2, (uint8_t *)buf, (uint16_t)len, 1000);
 }

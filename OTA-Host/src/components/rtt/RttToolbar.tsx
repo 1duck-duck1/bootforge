@@ -12,6 +12,7 @@ import {
   Zap,
 } from "lucide-react";
 import { RTT_ALL_CHANNELS, useRttStore } from "@/stores/rttStore";
+import { DataViewSwitch } from "@/components/telemetry/DataViewSwitch";
 import { useOtaStore } from "@/stores/otaStore";
 import { saveTextFile } from "@/lib/tauri";
 import { useLogStore } from "@/stores/logStore";
@@ -53,6 +54,8 @@ export function RttToolbar() {
   const clear = useRttStore((s) => s.clear);
   const start = useRttStore((s) => s.start);
   const stop = useRttStore((s) => s.stop);
+  const viewMode = useRttStore((s) => s.viewMode);
+  const setViewMode = useRttStore((s) => s.setViewMode);
   const connected = useOtaStore((s) => s.connected);
 
   const handleExport = async () => {
@@ -125,6 +128,8 @@ export function RttToolbar() {
       </span>
 
       <div className="ml-auto flex flex-wrap items-center gap-1">
+        <DataViewSwitch value={viewMode} onChange={setViewMode} />
+
         <Select
           value={String(selectedChannel)}
           onChange={(event) => setSelectedChannel(Number(event.target.value))}

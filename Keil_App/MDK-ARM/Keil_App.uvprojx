@@ -83,7 +83,7 @@
             <RunUserProg1>0</RunUserProg1>
             <RunUserProg2>1</RunUserProg2>
             <UserProg1Name></UserProg1Name>
-            <UserProg2Name></UserProg2Name>
+            <UserProg2Name>$K\ARM\ARMCC\bin\fromelf.exe --bin --output=@L.bin !L</UserProg2Name>
             <UserProg1Dos16Mode>0</UserProg1Dos16Mode>
             <UserProg2Dos16Mode>0</UserProg2Dos16Mode>
             <nStopA1X>0</nStopA1X>
@@ -340,7 +340,7 @@
               <MiscControls>-Wno-unsafe-buffer-usage -Wno-padded -Wno-format-nonliteral</MiscControls>
               <Define>USE_HAL_DRIVER,STM32F407xx</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../MCUBoot/bootutil/include;../MCUBoot/port;../MCUBoot/tinycrypt/lib/include;../MCUBoot/mbedtls-asn1/include</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../MCUBoot/bootutil/include;../MCUBoot/port;../MCUBoot/tinycrypt/lib/include;../MCUBoot/mbedtls-asn1/include;../RTTBSP</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -678,6 +678,21 @@
               <FileName>crypto_stubs.c</FileName>
               <FileType>1</FileType>
               <FilePath>../MCUBoot/port/crypto_stubs.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>RTTBSP</GroupName>
+          <Files>
+            <File>
+              <FileName>SEGGER_RTT.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../RTTBSP/SEGGER_RTT.c</FilePath>
+            </File>
+            <File>
+              <FileName>SEGGER_RTT_printf.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../RTTBSP/SEGGER_RTT_printf.c</FilePath>
             </File>
           </Files>
         </Group>

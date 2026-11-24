@@ -9,7 +9,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use parking_lot::Mutex;
 use probe_rs::rtt::{Rtt, ScanRegion};
-use probe_rs::{Core, Session};
+use probe_rs::{Core, MemoryInterface, Session};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::thread;
@@ -24,6 +24,46 @@ const READ_BUDGET_PER_TICK: usize = 128 * 1024;
 const MAX_DOWN_PENDING: usize = 256 * 1024;
 /// 目标复位/swap 期间控制块可能短时间不存在，超过该时长仍找不到才判定失败
 const REATTACH_TIMEOUT: Duration = Duration::from_secs(10);
+/// 主 SRAM 扫描范围（STM32F407：0x2000_0000 起 128 KiB）
+const SCAN_START: u64 = 0x2000_0000;
+const SCAN_END: u64 = 0x2002_0000;
+/// 分块扫描粒度。控制块位于 .bss 起始附近，小块可避免一次性搬运整段 RAM
+const SCAN_CHUNK: usize = 1024;
+/// SEGGER RTT 控制块标识
+const RTT_ID: &[u8] = b"SEGGER RTT";
+
+/// 最近一次成功附着的控制块地址。固件不变时地址稳定，可直接复用，
+/// 固件更新后若地址失效会自动回退到扫描。
+static CACHED_CONTROL_BLOCK: Mutex<Option<u64>> = Mutex::new(None);
+
+fn control_block_matches(core: &mut Core<'_>, address: u64) -> bool {
+    let mut id = [0u8; 10];
+    core.read(address, &mut id)
+        .map(|_| id.as_slice() == RTT_ID)
+        .unwrap_or(false)
+}
+
+/// 在主 SRAM 中按块搜索控制块标识，命中即返回，避免整段 RAM 的顺序读取。
+fn find_control_block(core: &mut Core<'_>) -> Option<u64> {
+    let mut buffer = vec![0u8; SCAN_CHUNK];
+    let mut address = SCAN_START;
+    while address < SCAN_END {
+        let len = ((SCAN_END - address) as usize).min(SCAN_CHUNK);
+        let slice = &mut buffer[..len];
+        if core.read(address, slice).is_err() {
+            return None;
+        }
+        if let Some(offset) = slice.windows(RTT_ID.len()).position(|window| window == RTT_ID) {
+            return Some(address + offset as u64);
+        }
+        if len <= RTT_ID.len() - 1 {
+            break;
+        }
+        // 保留尾部重叠，避免标识正好跨块时漏检
+        address += (len - (RTT_ID.len() - 1)) as u64;
+    }
+    None
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RttStartOptions {
@@ -120,21 +160,52 @@ fn attach_with_core(
     scan_mode: &str,
     address: Option<u64>,
 ) -> Result<(Rtt, RttConfig), String> {
+    let started = Instant::now();
+    let mut can_fallback = false;
     let region = match scan_mode {
         "exact" => {
             let address = address.ok_or_else(|| "精确模式需要填写 RTT 控制块地址".to_string())?;
             ScanRegion::Exact(address)
         }
-        _ => ScanRegion::Ram,
+        _ => {
+            can_fallback = true;
+            let cached = *CACHED_CONTROL_BLOCK.lock();
+            if let Some(address) = cached.filter(|address| control_block_matches(core, *address)) {
+                ScanRegion::Exact(address)
+            } else if let Some(address) = find_control_block(core) {
+                ScanRegion::Exact(address)
+            } else {
+                ScanRegion::Ram
+            }
+        }
     };
 
-    let rtt = Rtt::attach_region(core, &region).map_err(|error| {
-        format!(
-            "未找到 RTT 控制块（{error:?}）。请确认固件已初始化 SEGGER RTT，且程序已经运行到初始化之后；\
-             也可以改用精确地址模式直接指定控制块地址。"
-        )
-    })?;
+    let rtt = match Rtt::attach_region(core, &region) {
+        Ok(rtt) => rtt,
+        // 缓存或分块扫描得到的地址不可用（固件已更新）：退回完整 RAM 扫描
+        Err(_) if can_fallback => {
+            *CACHED_CONTROL_BLOCK.lock() = None;
+            Rtt::attach_region(core, &ScanRegion::Ram).map_err(|error| {
+                format!(
+                    "未找到 RTT 控制块（{error:?}）。请确认固件已初始化 SEGGER RTT，且程序已经运行到初始化之后；\
+                     也可以改用精确地址模式直接指定控制块地址。"
+                )
+            })?
+        }
+        Err(error) => {
+            return Err(format!(
+                "未找到 RTT 控制块（{error:?}）。请确认固件已初始化 SEGGER RTT，且程序已经运行到初始化之后；\
+                 也可以改用精确地址模式直接指定控制块地址。"
+            ))
+        }
+    };
     let config = config_of(&rtt);
+    *CACHED_CONTROL_BLOCK.lock() = Some(config.control_block_address);
+    eprintln!(
+        "RTT 控制块 0x{:08X} 附着完成，耗时 {:?}",
+        config.control_block_address,
+        started.elapsed()
+    );
     Ok((rtt, config))
 }
 

@@ -26,6 +26,7 @@
 /* USER CODE BEGIN Includes */
 #include "bootutil/bootutil_public.h"
 #include "mcuboot_config/mcuboot_logging.h"
+#include "SEGGER_RTT.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,16 +47,56 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+/* RTT 心跳计时（ms） */
+static uint32_t last_rtt_beat = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
+static void handle_command(uint8_t ch);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+/* 处理来自 UART 或 RTT 的单字符命令 */
+static void handle_command(uint8_t ch)
+{
+  switch (ch)
+  {
+  case 'p':
+    MCUBOOT_LOG_INF("boot_set_pending(test), rebooting...");
+    if (boot_set_pending(false) == 0)
+    {
+      HAL_Delay(50);
+      NVIC_SystemReset();
+    }
+    MCUBOOT_LOG_ERR("boot_set_pending failed");
+    break;
+  case 's':
+  {
+    /* MCUboot 常量：1=none 2=test 3=perm 4=revert 5=fail（bootutil_public.h） */
+    const char *desc;
+    switch (boot_swap_type())
+    {
+    case 1: desc = "none - no pending swap"; break;
+    case 2: desc = "test - image pending test upgrade"; break;
+    case 3: desc = "perm - image pending permanent upgrade"; break;
+    case 4: desc = "revert - test image awaiting confirmation"; break;
+    case 5: desc = "fail - swap failed"; break;
+    default: desc = "unknown"; break;
+    }
+    MCUBOOT_LOG_INF("boot_swap_type: %s", desc);
+    break;
+  }
+  case 't':
+    /* 诊断：HAL_GetTick 停滞说明 SysTick 中断未运行 */
+    MCUBOOT_LOG_INF("tick=%u", (unsigned)HAL_GetTick());
+    break;
+  default:
+    break;
+  }
+}
 /* USER CODE END 0 */
 
 /**
@@ -82,7 +123,9 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  /* MCUboot 跳转前执行了 __disable_irq()，APP 必须重新开中断，
+   * 否则 SysTick 中断被屏蔽，HAL_GetTick()/HAL_Delay() 永久停摆。 */
+  __enable_irq();
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -96,7 +139,13 @@ int main(void)
     MX_TIM2_Init();
     HAL_TIM_Base_Start(&htim2);
 
-    MCUBOOT_LOG_INF("=== Keil_OTA App v1.0.0 ===");
+    /* SEGGER RTT: 控制块由上位机按 RAM 扫描 "SEGGER RTT" 自动定位。 */
+    SEGGER_RTT_Init();
+    (void)SEGGER_RTT_printf(0, "\r\n=== Keil_OTA App RTT ready (build %s %s) ===\r\n",
+                            __DATE__, __TIME__);
+    (void)SEGGER_RTT_WriteString(0, "RTT up/down channel 0 ready, keys: [p] pending+reboot, [s] swap status, [t] tick\r\n");
+
+    MCUBOOT_LOG_INF("=== Keil_OTA App v1.0.0 (build "__DATE__" "__TIME__") ===");
     MCUBOOT_LOG_INF("Running from primary slot, entry 0x08020200");
 
     /* Mark this image as good. Skipped automatically when already
@@ -108,7 +157,7 @@ int main(void)
     MCUBOOT_LOG_INF("boot_set_confirmed rc=%d", rc);
 #endif
 
-    MCUBOOT_LOG_INF("keys: [p] mark pending + reboot, [s] swap status");
+    MCUBOOT_LOG_INF("keys: [p] mark pending + reboot, [s] swap status, [t] tick");
   }
   /* USER CODE END 2 */
 
@@ -117,38 +166,29 @@ int main(void)
   while (1)
   {
     uint8_t ch;
+
+    /* UART 命令 */
     if (HAL_UART_Receive(&huart2, &ch, 1, 50) == HAL_OK)
     {
-      switch (ch)
+      handle_command(ch);
+    }
+
+    /* RTT 下行命令：上位机 RTT 面板发送的字符走同一套处理 */
+    if (SEGGER_RTT_HasKey())
+    {
+      int key = SEGGER_RTT_GetKey();
+      if (key >= 0)
       {
-      case 'p':
-        MCUBOOT_LOG_INF("boot_set_pending(test), rebooting...");
-        if (boot_set_pending(false) == 0)
-        {
-          HAL_Delay(50);
-          NVIC_SystemReset();
-        }
-        MCUBOOT_LOG_ERR("boot_set_pending failed");
-        break;
-      case 's':
-      {
-        /* MCUboot 常量：1=none 2=test 3=perm 4=revert 5=fail（bootutil_public.h） */
-        const char *desc;
-        switch (boot_swap_type())
-        {
-        case 1: desc = "none - no pending swap"; break;
-        case 2: desc = "test - image pending test upgrade"; break;
-        case 3: desc = "perm - image pending permanent upgrade"; break;
-        case 4: desc = "revert - test image awaiting confirmation"; break;
-        case 5: desc = "fail - swap failed"; break;
-        default: desc = "unknown"; break;
-        }
-        MCUBOOT_LOG_INF("boot_swap_type: %s", desc);
-        break;
+        (void)SEGGER_RTT_printf(0, "RTT rx: '%c'\r\n", (char)key);
+        handle_command((uint8_t)key);
       }
-      default:
-        break;
-      }
+    }
+
+    /* 1 Hz 心跳，便于确认 RTT 链路工作正常 */
+    if (HAL_GetTick() - last_rtt_beat >= 1000U)
+    {
+      last_rtt_beat = HAL_GetTick();
+      (void)SEGGER_RTT_printf(0, "[%u ms] RTT alive\r\n", (unsigned)last_rtt_beat);
     }
     /* USER CODE END WHILE */
 

@@ -11,6 +11,7 @@ import {
   type SerialPortInfo,
 } from "@/lib/tauri";
 import { useLogStore } from "./logStore";
+import { normalizeDataViewMode, type DataViewMode } from "@/lib/dataView";
 
 export type LineEnding = "none" | "lf" | "crlf" | "cr";
 
@@ -65,6 +66,8 @@ interface SerialStore {
   paused: boolean;
   /** 收发分屏：RX/TX 分两列显示 */
   splitView: boolean;
+  /** 工作区视图：文本 / 分屏 / 图表 */
+  viewMode: DataViewMode;
   bytesReceived: number;
   bytesSent: number;
   // actions
@@ -81,6 +84,7 @@ interface SerialStore {
   setAutoScroll: (value: boolean) => void;
   setPaused: (value: boolean) => void;
   setSplitView: (value: boolean) => void;
+  setViewMode: (value: DataViewMode) => void;
   applyStatus: (connected: boolean, running: boolean, error: string | null) => void;
 }
 
@@ -117,6 +121,7 @@ export const useSerialStore = create<SerialStore>()(
       autoScroll: true,
       paused: false,
       splitView: false,
+      viewMode: "text",
       bytesReceived: 0,
       bytesSent: 0,
 
@@ -255,6 +260,7 @@ export const useSerialStore = create<SerialStore>()(
       setAutoScroll: (value) => set({ autoScroll: value }),
       setPaused: (value) => set({ paused: value }),
       setSplitView: (value) => set({ splitView: value }),
+      setViewMode: (value) => set({ viewMode: value }),
       applyStatus: (connected, running, error) => set({ connected, running, error }),
     }),
     {
@@ -265,11 +271,13 @@ export const useSerialStore = create<SerialStore>()(
           form: Partial<SerialForm>;
           autoScroll: boolean;
           splitView: boolean;
+          viewMode: unknown;
         }>;
         return {
           ...current,
           autoScroll: saved.autoScroll ?? current.autoScroll,
           splitView: saved.splitView ?? current.splitView,
+          viewMode: normalizeDataViewMode(saved.viewMode) ?? current.viewMode,
           form: { ...current.form, ...saved.form },
         };
       },
@@ -277,6 +285,7 @@ export const useSerialStore = create<SerialStore>()(
         form: state.form,
         autoScroll: state.autoScroll,
         splitView: state.splitView,
+        viewMode: state.viewMode,
       }),
     }
   )

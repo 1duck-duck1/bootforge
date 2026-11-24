@@ -77,11 +77,17 @@ function App() {
             onToggleInspector={() => setInspectorOpen((open) => !open)}
           />
           <div
-            className="grid min-h-0 overflow-hidden"
+            className="grid min-h-0 flex-1 overflow-hidden"
             style={
               showInspector
-                ? { gridTemplateColumns: `minmax(0,1fr) 6px ${inspectorWidth}px` }
-                : { gridTemplateColumns: "minmax(0,1fr)" }
+                ? {
+                    gridTemplateColumns: `minmax(0,1fr) 6px ${inspectorWidth}px`,
+                    gridTemplateRows: "minmax(0,1fr)",
+                  }
+                : {
+                    gridTemplateColumns: "minmax(0,1fr)",
+                    gridTemplateRows: "minmax(0,1fr)",
+                  }
             }
           >
             <div key={mode} className="surface-card min-h-0 min-w-0 overflow-hidden rounded-2xl">

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { nextRttLineId, useRttStore, type RttLine } from "@/stores/rttStore";
+import { useRttChartStore } from "@/stores/rttChartStore";
 import type { RttDataEvent, RttStatusEvent } from "@/lib/tauri";
 import { useLogStore } from "@/stores/logStore";
 
@@ -58,6 +59,7 @@ export function useRttEvents() {
       raf = null;
       if (batch.length === 0) return;
       const lines = batch.splice(0, batch.length);
+      useRttChartStore.getState().ingest(lines);
       if (useRttStore.getState().paused) {
         pausedBufferRef.current.push(...lines);
         if (pausedBufferRef.current.length > 5000) {
@@ -163,6 +165,7 @@ export function useRttEvents() {
     // 恢复显示时把暂停期间积压的行一次性补上
     const unsubscribePaused = useRttStore.subscribe((state, previous) => {
       if (previous.paused && !state.paused && pausedBufferRef.current.length > 0) {
+        // 这些行在 commit 时已送入图表，恢复显示只需补终端
         const buffered = pausedBufferRef.current.splice(0);
         addLines(buffered.map((line) => ({ ...line, id: nextRttLineId() })));
       }

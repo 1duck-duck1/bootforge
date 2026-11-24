@@ -14,6 +14,7 @@ import {
   StopCircle,
 } from "lucide-react";
 import { useSerialStore } from "@/stores/serialStore";
+import { DataViewSwitch } from "@/components/telemetry/DataViewSwitch";
 import { saveTextFile } from "@/lib/tauri";
 import { useLogStore } from "@/stores/logStore";
 import { Button } from "@/components/ui/button";
@@ -56,6 +57,8 @@ export function SerialToolbar({
   const running = useSerialStore((s) => s.running);
   const startReceiving = useSerialStore((s) => s.startReceiving);
   const stopReceiving = useSerialStore((s) => s.stopReceiving);
+  const viewMode = useSerialStore((s) => s.viewMode);
+  const setViewMode = useSerialStore((s) => s.setViewMode);
 
   const matchCount = useMemo(() => {
     const keyword = query.trim().toLowerCase();
@@ -118,6 +121,8 @@ export function SerialToolbar({
         )}
       </span>
 
+      <DataViewSwitch value={viewMode} onChange={setViewMode} />
+
       <div className="relative">
         <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
         <Input
@@ -175,13 +180,13 @@ export function SerialToolbar({
           <Binary className="h-3.5 w-3.5" />
         </Button>
       </Tooltip>
-      <Tooltip label={splitView ? "合并收发视图" : "收发分屏显示"}>
+      <Tooltip label={splitView ? "合并 RX/TX 分栏" : "按 RX/TX 分栏显示"}>
         <Button
           variant="ghost"
           size="icon"
           className={cn("h-7 w-7", splitView && "text-primary")}
           onClick={() => setSplitView(!splitView)}
-          aria-label="切换收发分屏"
+          aria-label="切换收发分栏"
         >
           <Columns2 className="h-3.5 w-3.5" />
         </Button>
