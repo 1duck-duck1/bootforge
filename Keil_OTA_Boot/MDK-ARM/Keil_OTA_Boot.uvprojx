@@ -545,21 +545,6 @@
               <FilePath>../MCUBoot/bootutil/src/bootutil_public.c</FilePath>
             </File>
             <File>
-              <FileName>boot_record.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/bootutil/src/boot_record.c</FilePath>
-            </File>
-            <File>
-              <FileName>caps.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/bootutil/src/caps.c</FilePath>
-            </File>
-            <File>
-              <FileName>encrypted.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/bootutil/src/encrypted.c</FilePath>
-            </File>
-            <File>
               <FileName>fault_injection_hardening.c</FileName>
               <FileType>1</FileType>
               <FilePath>../MCUBoot/bootutil/src/fault_injection_hardening.c</FilePath>

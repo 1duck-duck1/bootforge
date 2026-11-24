@@ -340,7 +340,7 @@
               <MiscControls>-Wno-unsafe-buffer-usage -Wno-padded -Wno-format-nonliteral</MiscControls>
               <Define>USE_HAL_DRIVER,STM32F407xx</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../MCUBoot/bootutil/include;../MCUBoot/port;../MCUBoot/tinycrypt/lib/include;../MCUBoot/mbedtls-asn1/include;../RTTBSP</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../MCUBoot/bootutil/include;../MCUBoot/port;../RTTBSP</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -535,124 +535,9 @@
               <FilePath>../MCUBoot/bootutil/src/bootutil_public.c</FilePath>
             </File>
             <File>
-              <FileName>bootutil_misc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/bootutil/src/bootutil_misc.c</FilePath>
-            </File>
-            <File>
-              <FileName>swap_misc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/bootutil/src/swap_misc.c</FilePath>
-            </File>
-            <File>
-              <FileName>swap_scratch.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/bootutil/src/swap_scratch.c</FilePath>
-            </File>
-            <File>
               <FileName>fault_injection_hardening.c</FileName>
               <FileType>1</FileType>
               <FilePath>../MCUBoot/bootutil/src/fault_injection_hardening.c</FilePath>
-            </File>
-            <File>
-              <FileName>bootutil_area.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/bootutil/src/bootutil_area.c</FilePath>
-            </File>
-            <File>
-              <FileName>loader.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/bootutil/src/loader.c</FilePath>
-            </File>
-            <File>
-              <FileName>bootutil_find_key.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/bootutil/src/bootutil_find_key.c</FilePath>
-            </File>
-            <File>
-              <FileName>bootutil_img_hash.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/bootutil/src/bootutil_img_hash.c</FilePath>
-            </File>
-            <File>
-              <FileName>bootutil_img_security_cnt.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/bootutil/src/bootutil_img_security_cnt.c</FilePath>
-            </File>
-            <File>
-              <FileName>bootutil_loader.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/bootutil/src/bootutil_loader.c</FilePath>
-            </File>
-            <File>
-              <FileName>boot_record.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/bootutil/src/boot_record.c</FilePath>
-            </File>
-            <File>
-              <FileName>caps.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/bootutil/src/caps.c</FilePath>
-            </File>
-            <File>
-              <FileName>encrypted.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/bootutil/src/encrypted.c</FilePath>
-            </File>
-            <File>
-              <FileName>image_ecdsa.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/bootutil/src/image_ecdsa.c</FilePath>
-            </File>
-            <File>
-              <FileName>image_validate.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/bootutil/src/image_validate.c</FilePath>
-            </File>
-            <File>
-              <FileName>tlv.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/bootutil/src/tlv.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>MCUBoot/tinycrypt</GroupName>
-          <Files>
-            <File>
-              <FileName>ecc.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/tinycrypt/lib/source/ecc.c</FilePath>
-            </File>
-            <File>
-              <FileName>ecc_dsa.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/tinycrypt/lib/source/ecc_dsa.c</FilePath>
-            </File>
-            <File>
-              <FileName>sha256.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/tinycrypt/lib/source/sha256.c</FilePath>
-            </File>
-            <File>
-              <FileName>utils.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/tinycrypt/lib/source/utils.c</FilePath>
-            </File>
-          </Files>
-        </Group>
-        <Group>
-          <GroupName>MCUBoot/mbedtls-asn1</GroupName>
-          <Files>
-            <File>
-              <FileName>asn1parse.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/mbedtls-asn1/src/asn1parse.c</FilePath>
-            </File>
-            <File>
-              <FileName>platform_util.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/mbedtls-asn1/src/platform_util.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -668,16 +553,6 @@
               <FileName>boot_log.c</FileName>
               <FileType>1</FileType>
               <FilePath>../MCUBoot/port/boot_log.c</FilePath>
-            </File>
-            <File>
-              <FileName>keys.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/port/keys.c</FilePath>
-            </File>
-            <File>
-              <FileName>crypto_stubs.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>../MCUBoot/port/crypto_stubs.c</FilePath>
             </File>
           </Files>
         </Group>
