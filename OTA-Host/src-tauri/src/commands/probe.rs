@@ -1,6 +1,6 @@
 //! 探针枚举与连接管理（参考 OmniProbe 架构）。
 //! 探针枚举 = probe-rs Lister + Windows 下官方驱动 J-Link 合并；
-//! 连接 = 打开探针 → SWD → 设速度 → attach 到 stm32f407vg。
+//! 连接 = 打开探针 → SWD → 设速度 → attach 到所选芯片（默认 stm32f407vg）。
 use crate::state::{AppState, ConnectionInfo};
 use probe_rs::{
     architecture::arm::dp::{DpAddress, DpRegisterAddress},
@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, LazyLock};
 use tauri::State;
 
-/// 本项目目标芯片固定为 STM32F407VG（probe-rs 内置定义，含 Flash 烧录算法）。
+/// 本项目默认目标芯片（probe-rs 内置定义，含 Flash 烧录算法）。
 pub const TARGET_NAME: &str = "stm32f407vg";
 
 /// 内置芯片注册表（无需 Pack 导入，STM32F4 系列开箱即用）。
@@ -74,7 +74,10 @@ pub async fn list_probes() -> Result<Vec<ProbeInfo>, String> {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ConnectOptions {
     pub probe_identifier: String,
-    /// SWD 时钟速度（kHz），默认 2000
+    /// 目标芯片名（probe-rs 内置注册表），缺省为 stm32f407vg
+    #[serde(default)]
+    pub target: Option<String>,
+    /// SWD 时钟速度（kHz），默认 4000
     #[serde(default)]
     pub clock_speed_khz: Option<u32>,
 }
@@ -85,6 +88,127 @@ pub struct TargetInfo {
     pub name: String,
     pub chip_id: Option<u32>,
     pub target_idcode: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChipInfo {
+    pub name: String,
+    pub vendor: String,
+    pub family: String,
+    pub cores: Vec<CoreInfo>,
+    pub memory_regions: Vec<MemoryRegionInfo>,
+    pub flash_algorithms: Vec<FlashAlgorithmInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoreInfo {
+    pub name: String,
+    pub core_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryRegionInfo {
+    pub name: String,
+    pub kind: String,
+    pub address: u64,
+    pub size: u64,
+    pub page_size: Option<u64>,
+    pub sector_size: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlashAlgorithmInfo {
+    pub name: String,
+    pub default: bool,
+    pub load_address: u64,
+    pub data_section_offset: u64,
+}
+
+/// 按关键字搜索 probe-rs 内置芯片（供前端选择目标芯片）
+#[tauri::command]
+pub async fn search_chips(query: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let needle = query.trim().to_lowercase();
+        let mut names: Vec<String> = TARGET_REGISTRY
+            .families()
+            .iter()
+            .flat_map(|family| family.variants().iter())
+            .map(|variant| variant.name.clone())
+            .filter(|name| needle.is_empty() || name.to_lowercase().contains(&needle))
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        names.truncate(50);
+        names
+    })
+    .await
+    .map_err(|e| format!("芯片搜索异常: {e}"))
+}
+
+/// 读取芯片的内存映射与烧录算法（类似 OmniProbe 的芯片信息卡）
+#[tauri::command]
+pub async fn get_chip_info(chip_name: String) -> Result<ChipInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let target = TARGET_REGISTRY
+            .get_target_by_name(&chip_name)
+            .map_err(|e| format!("未找到芯片 '{chip_name}': {e}"))?;
+
+        Ok(ChipInfo {
+            name: target.name.clone(),
+            vendor: String::new(),
+            family: String::new(),
+            cores: target
+                .cores
+                .iter()
+                .map(|core| CoreInfo {
+                    name: core.name.clone(),
+                    core_type: format!("{:?}", core.core_type),
+                })
+                .collect(),
+            memory_regions: target
+                .memory_map
+                .iter()
+                .map(|region| match region {
+                    probe_rs::config::MemoryRegion::Ram(ram) => MemoryRegionInfo {
+                        name: ram.name.clone().unwrap_or_default(),
+                        kind: "RAM".to_string(),
+                        address: ram.range.start,
+                        size: ram.range.end - ram.range.start,
+                        page_size: None,
+                        sector_size: None,
+                    },
+                    probe_rs::config::MemoryRegion::Nvm(nvm) => MemoryRegionInfo {
+                        name: nvm.name.clone().unwrap_or_default(),
+                        kind: "Flash".to_string(),
+                        address: nvm.range.start,
+                        size: nvm.range.end - nvm.range.start,
+                        page_size: None,
+                        sector_size: None,
+                    },
+                    probe_rs::config::MemoryRegion::Generic(generic) => MemoryRegionInfo {
+                        name: generic.name.clone().unwrap_or_default(),
+                        kind: "Generic".to_string(),
+                        address: generic.range.start,
+                        size: generic.range.end - generic.range.start,
+                        page_size: None,
+                        sector_size: None,
+                    },
+                })
+                .collect(),
+            flash_algorithms: target
+                .flash_algorithms
+                .iter()
+                .map(|algorithm| FlashAlgorithmInfo {
+                    name: algorithm.name.clone(),
+                    default: algorithm.default,
+                    load_address: algorithm.load_address.unwrap_or(0),
+                    data_section_offset: algorithm.data_section_offset,
+                })
+                .collect(),
+        })
+    })
+    .await
+    .map_err(|e| format!("读取芯片信息异常: {e}"))?
 }
 
 fn open_selected_probe(info: &ProbeInfo) -> Result<probe_rs::probe::Probe, String> {
@@ -124,7 +248,7 @@ fn open_selected_probe(info: &ProbeInfo) -> Result<probe_rs::probe::Probe, Strin
         })
 }
 
-/// 打开探针并 attach 到 STM32F407。同步阻塞，由命令层放阻塞线程执行。
+/// 打开探针并 attach 到所选芯片。同步阻塞，由命令层放阻塞线程执行。
 fn open_session(options: &ConnectOptions) -> Result<(Session, ConnectionInfo), String> {
     let probes = enumerate_probes();
     let mut matches = probes
@@ -137,9 +261,16 @@ fn open_session(options: &ConnectOptions) -> Result<(Session, ConnectionInfo), S
         return Err("有多个同名探针，请刷新列表并按序列号重新选择。".into());
     }
 
+    let target_name = options
+        .target
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(TARGET_NAME);
+
     let target = TARGET_REGISTRY
-        .get_target_by_name(TARGET_NAME)
-        .map_err(|e| format!("无法加载内置芯片定义 '{TARGET_NAME}': {e}"))?;
+        .get_target_by_name(target_name)
+        .map_err(|e| format!("无法加载芯片定义 '{target_name}': {e}"))?;
 
     let mut probe = open_selected_probe(probe_info)?;
 
@@ -157,20 +288,20 @@ fn open_session(options: &ConnectOptions) -> Result<(Session, ConnectionInfo), S
     let mut session = probe
         .attach_with_registry(target, Permissions::default(), &empty_registry)
         .map_err(|e| {
-            format!("无法连接到芯片 '{TARGET_NAME}': {e}。请检查: 1) 探针与板卡接线 2) 目标供电 3) SWD 接口")
+            format!("无法连接到芯片 '{target_name}': {e}。请检查: 1) 探针与板卡接线 2) 目标供电 3) SWD 接口")
         })?;
 
     let chip_id = read_chip_id(&mut session);
     let target_idcode = read_dp_idcode(&mut session);
     eprintln!(
-        "已连接 {TARGET_NAME}，芯片ID: {:08X?}，调试端口ID: {:08X?}",
+        "已连接 {target_name}，芯片ID: {:08X?}，调试端口ID: {:08X?}",
         chip_id, target_idcode
     );
 
     let connection_info = ConnectionInfo {
         probe_name: probe_info.identifier.clone(),
         probe_serial: probe_info.serial_number.clone(),
-        target_name: TARGET_NAME.to_string(),
+        target_name: target_name.to_string(),
         chip_id,
         target_idcode,
     };

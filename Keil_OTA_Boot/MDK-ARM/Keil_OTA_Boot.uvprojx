@@ -410,6 +410,11 @@
               <FilePath>../Core/Src/usart.c</FilePath>
             </File>
             <File>
+              <FileName>boot_ota.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/boot_ota.c</FilePath>
+            </File>
+            <File>
               <FileName>stm32f4xx_it.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/stm32f4xx_it.c</FilePath>

@@ -1,4 +1,5 @@
 pub mod local;
+pub mod ota;
 
 pub use local::{list_serial_ports, LocalSerial, SerialPortInfo};
 

@@ -340,7 +340,7 @@
               <MiscControls>-Wno-unsafe-buffer-usage -Wno-padded -Wno-format-nonliteral</MiscControls>
               <Define>USE_HAL_DRIVER,STM32F407xx</Define>
               <Undefine></Undefine>
-              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../MCUBoot/bootutil/include;../MCUBoot/port;../RTTBSP</IncludePath>
+              <IncludePath>../Core/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc;../Drivers/STM32F4xx_HAL_Driver/Inc/Legacy;../Drivers/CMSIS/Device/ST/STM32F4xx/Include;../Drivers/CMSIS/Include;../MCUBoot/bootutil/include;../MCUBoot/port;../MCUBoot/tinycrypt/lib/include;../RTTBSP</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -428,6 +428,11 @@
               <FileName>stm32f4xx_hal_msp.c</FileName>
               <FileType>1</FileType>
               <FilePath>../Core/Src/stm32f4xx_hal_msp.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_ota.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/app_ota.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -553,6 +558,21 @@
               <FileName>boot_log.c</FileName>
               <FileType>1</FileType>
               <FilePath>../MCUBoot/port/boot_log.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>MCUBoot/tinycrypt</GroupName>
+          <Files>
+            <File>
+              <FileName>sha256.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../MCUBoot/tinycrypt/lib/source/sha256.c</FilePath>
+            </File>
+            <File>
+              <FileName>utils.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../MCUBoot/tinycrypt/lib/source/utils.c</FilePath>
             </File>
           </Files>
         </Group>

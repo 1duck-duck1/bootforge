@@ -55,6 +55,7 @@ export function SerialToolbar({
   const baudRate = useSerialStore((s) => s.form.baudRate);
   const connected = useSerialStore((s) => s.connected);
   const running = useSerialStore((s) => s.running);
+  const otaBusy = useSerialStore((s) => s.otaBusy);
   const startReceiving = useSerialStore((s) => s.startReceiving);
   const stopReceiving = useSerialStore((s) => s.stopReceiving);
   const viewMode = useSerialStore((s) => s.viewMode);
@@ -117,7 +118,9 @@ export function SerialToolbar({
         {query.trim() && ` · 匹配 ${matchCount}/${lines.length}`}
         {paused && <span className="ml-2 text-yellow-600 dark:text-yellow-500">已暂停刷新</span>}
         {connected && !running && (
-          <span className="ml-2 text-yellow-600 dark:text-yellow-500">接收已停止</span>
+          <span className="ml-2 text-yellow-600 dark:text-yellow-500">
+            {otaBusy ? "串口 OTA 占用中" : "接收已停止"}
+          </span>
         )}
       </span>
 
@@ -135,13 +138,16 @@ export function SerialToolbar({
       </div>
 
       {connected && (
-        <Tooltip label={running ? "停止接收（串口保持连接）" : "恢复接收"}>
+        <Tooltip
+          label={otaBusy ? "串口 OTA 占用中，结束后自动恢复接收" : running ? "停止接收（串口保持连接）" : "恢复接收"}
+        >
           <Button
             variant="ghost"
             size="icon"
             className={cn("h-7 w-7", !running && "text-yellow-600 dark:text-yellow-500")}
+            disabled={otaBusy}
             onClick={() => void (running ? stopReceiving() : startReceiving())}
-            aria-label={running ? "停止接收" : "恢复接收"}
+            aria-label={otaBusy ? "串口 OTA 占用中" : running ? "停止接收" : "恢复接收"}
           >
             {running ? <StopCircle className="h-3.5 w-3.5" /> : <PlayCircle className="h-3.5 w-3.5" />}
           </Button>

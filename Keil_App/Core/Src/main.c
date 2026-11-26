@@ -20,6 +20,7 @@
 #include "main.h"
 #include "usart.h"
 #include "gpio.h"
+#include "dma.h"
 #include "tim.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -27,6 +28,7 @@
 #include "bootutil/bootutil_public.h"
 #include "mcuboot_config/mcuboot_logging.h"
 #include "SEGGER_RTT.h"
+#include "app_ota.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -130,6 +132,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();          /* 先开 DMA1 时钟，USART2 MspInit 里初始化 RX DMA */
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   {
@@ -144,6 +147,10 @@ int main(void)
     (void)SEGGER_RTT_printf(0, "\r\n=== Keil_OTA App RTT ready (build %s %s) ===\r\n",
                             __DATE__, __TIME__);
     (void)SEGGER_RTT_WriteString(0, "RTT up/down channel 0 ready, keys: [p] pending+reboot, [s] swap status, [t] tick\r\n");
+    (void)SEGGER_RTT_WriteString(0, "USART2: text keys; send \"OTA\\n\" to reboot into bootloader serial OTA\r\n");
+
+    /* 串口控制台接收（USART2 DMA）；串口 OTA 搬运已移到 Bootloader */
+    app_ota_init();
 
     MCUBOOT_LOG_INF("=== Keil_OTA App v1.0.0 (build "__DATE__" "__TIME__") ===");
     MCUBOOT_LOG_INF("Running from primary slot, entry 0x08020200");
@@ -167,8 +174,8 @@ int main(void)
   {
     uint8_t ch;
 
-    /* UART 命令 */
-    if (HAL_UART_Receive(&huart2, &ch, 1, 50) == HAL_OK)
+    /* UART：控制台字节；匹配到 "OTA\n" 时由 app_ota_poll 复位进 Boot */
+    while (app_ota_poll(&ch))
     {
       handle_command(ch);
     }

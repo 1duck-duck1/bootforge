@@ -5,12 +5,19 @@ import { cn, formatBytes } from "@/lib/utils";
 export function SerialStatusBar() {
   const connected = useSerialStore((s) => s.connected);
   const running = useSerialStore((s) => s.running);
+  const otaBusy = useSerialStore((s) => s.otaBusy);
   const error = useSerialStore((s) => s.error);
   const form = useSerialStore((s) => s.form);
   const bytesReceived = useSerialStore((s) => s.bytesReceived);
   const bytesSent = useSerialStore((s) => s.bytesSent);
 
-  const statusText = !connected ? "未连接" : running ? "接收中" : "已停止接收";
+  const statusText = !connected
+    ? "未连接"
+    : otaBusy
+      ? "串口 OTA 占用中"
+      : running
+        ? "接收中"
+        : "已停止接收";
 
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-0.5 border-t bg-muted/30 px-3 py-1 text-[10.5px] text-muted-foreground">

@@ -24,10 +24,16 @@ pub fn run() {
             commands::serial::write_serial_string,
             commands::serial::start_serial,
             commands::serial::stop_serial,
+            // 串口 OTA 命令
+            commands::serial_ota::serial_ota_flash,
+            commands::serial_ota::serial_ota_abort,
+            commands::serial_ota::serial_ota_device_info,
             // OTA 签名命令
             commands::ota::sign_firmware,
             // 探针连接命令
             commands::probe::list_probes,
+            commands::probe::search_chips,
+            commands::probe::get_chip_info,
             commands::probe::connect_target,
             commands::probe::disconnect,
             commands::probe::get_connection_status,

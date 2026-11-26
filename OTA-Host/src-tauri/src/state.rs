@@ -2,7 +2,7 @@ use parking_lot::Mutex;
 use probe_rs::Session;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 /// 采集循环（串口读线程）的运行代次。
@@ -159,6 +159,16 @@ impl SerialState {
     }
 }
 
+/// 串口 OTA 运行状态。
+///
+/// `running` 防止重复启动，同时让普通串口接收知道端口已被独占；
+/// `cancel` 由取消命令置位，协议引擎在每帧/每次等待前检查。
+#[derive(Default)]
+pub struct SerialOtaState {
+    pub running: AtomicBool,
+    pub cancel: AtomicBool,
+}
+
 /// 调试探针连接信息（连接成功后展示用）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionInfo {
@@ -172,6 +182,7 @@ pub struct ConnectionInfo {
 /// Application State
 pub struct AppState {
     pub serial_state: Arc<SerialState>,
+    pub serial_ota: Arc<SerialOtaState>,
     /// 探针会话槽位：连接时放入，断开时取出。
     /// 烧录期间锁会被长时间持有，查状态须用 try_lock。
     pub session: Arc<Mutex<Option<Session>>>,
@@ -189,6 +200,7 @@ impl AppState {
     pub fn new() -> Self {
         Self {
             serial_state: Arc::new(SerialState::default()),
+            serial_ota: Arc::new(SerialOtaState::default()),
             session: Arc::new(Mutex::new(None)),
             connection_info: Arc::new(Mutex::new(None)),
             rtt_state: Arc::new(RttState::default()),

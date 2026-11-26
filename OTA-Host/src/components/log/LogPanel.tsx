@@ -11,7 +11,7 @@ const levelClass: Record<LogLevel, string> = {
   error: "text-destructive",
 };
 
-export function LogPanel() {
+export function LogPanel({ className }: { className?: string }) {
   const entries = useLogStore((s) => s.entries);
   const clear = useLogStore((s) => s.clear);
   const [open, setOpen] = useState(false);
@@ -24,7 +24,7 @@ export function LogPanel() {
   }, [entries, open]);
 
   return (
-    <div className="surface-shell mx-2 mb-2 shrink-0 overflow-hidden rounded-xl">
+    <div className={cn("surface-shell mx-2 mb-2 shrink-0 overflow-hidden rounded-xl", className)}>
       <div className="flex h-8 items-center gap-2 border-b px-2.5">
         <button
           type="button"

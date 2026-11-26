@@ -28,6 +28,10 @@
   --surface-1: rgba(255, 255, 255, 0.92);
   --surface-2: rgba(245, 248, 255, 0.94);
   --surface-overlay: hsl(var(--card));
+  --bg-spot-1: rgba(140, 181, 255, 0.22);
+  --bg-spot-2: rgba(132, 219, 200, 0.18);
+  --bg-gradient-top: rgba(246, 249, 255, 0.98);
+  --bg-gradient-bottom: rgba(231, 239, 251, 0.98);
   --terminal-rx: 34 140 62;
   --terminal-tx: 44 116 232;
 }
@@ -56,6 +60,10 @@
   --surface-1: rgba(28, 34, 49, 0.9);
   --surface-2: rgba(35, 43, 61, 0.92);
   --surface-overlay: hsl(var(--card));
+  --bg-spot-1: rgba(56, 92, 168, 0.2);
+  --bg-spot-2: rgba(40, 118, 108, 0.14);
+  --bg-gradient-top: rgba(19, 24, 37, 0.98);
+  --bg-gradient-bottom: rgba(12, 16, 26, 0.98);
   --terminal-rx: 110 212 160;
   --terminal-tx: 132 178 255;
 }
@@ -78,7 +86,10 @@ body,
 }
 
 body {
-  background: hsl(var(--background));
+  background:
+    radial-gradient(circle at top left, var(--bg-spot-1), transparent 28%),
+    radial-gradient(circle at 85% 15%, var(--bg-spot-2), transparent 22%),
+    linear-gradient(180deg, var(--bg-gradient-top) 0%, var(--bg-gradient-bottom) 100%);
   color: hsl(var(--foreground));
 }
 
@@ -117,7 +128,8 @@ textarea:focus {
   outline-offset: 1px;
 }
 
-.surface-shell {
+.surface-shell,
+.surface-strong {
   border: 1px solid hsl(var(--border) / 0.55);
   background: var(--surface-1);
   box-shadow: 0 4px 14px rgba(73, 93, 142, 0.08);
@@ -131,4 +143,14 @@ textarea:focus {
 
 .terminal-font {
   font-family: "Cascadia Mono", "JetBrains Mono", Consolas, "Courier New", monospace;
+}
+
+.flash-content {
+  container: flash-content / inline-size;
+}
+
+@container flash-content (max-width: 720px) {
+  .flash-content-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

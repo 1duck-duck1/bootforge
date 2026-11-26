@@ -27,6 +27,7 @@
 #include "bootutil/fault_injection_hardening.h"
 #include "mcuboot_config/mcuboot_logging.h"
 #include "sysflash/sysflash.h"
+#include "boot_ota.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -116,13 +117,26 @@ int main(void)
     struct boot_rsp rsp;
     fih_ret fih_rc;
 
+    /* The application asks for a serial update by setting an RTC backup
+     * register and resetting. Serve the OTA protocol before boot_go so the
+     * pending state is not touched while the host is transferring. */
+    if (boot_ota_requested())
+    {
+      boot_ota_clear_request();
+      MCUBOOT_LOG_INF("Serial OTA requested by application");
+      boot_ota_run(BOOT_OTA_IDLE_TIMEOUT_MS);
+    }
+
     MCUBOOT_LOG_INF("Starting MCUboot");
 
     /* Read trailers, verify signatures, (swap if requested), fill rsp. */
     fih_rc = boot_go(&rsp);
     if (FIH_NOT_EQ(fih_rc, FIH_SUCCESS))
     {
-      MCUBOOT_LOG_ERR("No bootable image found, halting");
+      /* Without a bootable image the bootloader becomes a permanent serial
+       * OTA server so a dead application can always be recovered. */
+      MCUBOOT_LOG_ERR("No bootable image found, entering serial OTA mode");
+      boot_ota_run(0U);
       while (1) { }
     }
 

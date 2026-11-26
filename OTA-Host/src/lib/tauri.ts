@@ -133,6 +133,36 @@ export interface ConnectionStatus {
   info: Option<ConnectionInfo>;
 }
 
+export interface CoreInfo {
+  name: string;
+  core_type: string;
+}
+
+export interface MemoryRegionInfo {
+  name: string;
+  kind: string;
+  address: number;
+  size: number;
+  page_size: Option<number>;
+  sector_size: Option<number>;
+}
+
+export interface FlashAlgorithmInfo {
+  name: string;
+  default: boolean;
+  load_address: number;
+  data_section_offset: number;
+}
+
+export interface ChipInfo {
+  name: string;
+  vendor: string;
+  family: string;
+  cores: CoreInfo[];
+  memory_regions: MemoryRegionInfo[];
+  flash_algorithms: FlashAlgorithmInfo[];
+}
+
 export interface TargetInfo {
   name: string;
   chip_id: Option<number>;
@@ -197,9 +227,25 @@ export async function listProbes(): Promise<ProbeInfo[]> {
   return await invoke<ProbeInfo[]>("list_probes");
 }
 
-export async function connectTarget(probeIdentifier: string, clockSpeedKhz?: number): Promise<TargetInfo> {
+export async function searchChips(query: string): Promise<string[]> {
+  return await invoke<string[]>("search_chips", { query });
+}
+
+export async function getChipInfo(chipName: string): Promise<ChipInfo> {
+  return await invoke<ChipInfo>("get_chip_info", { chipName });
+}
+
+export async function connectTarget(
+  probeIdentifier: string,
+  target?: string,
+  clockSpeedKhz?: number
+): Promise<TargetInfo> {
   return await invoke<TargetInfo>("connect_target", {
-    options: { probe_identifier: probeIdentifier, clock_speed_khz: clockSpeedKhz ?? null },
+    options: {
+      probe_identifier: probeIdentifier,
+      target: target ?? null,
+      clock_speed_khz: clockSpeedKhz ?? null,
+    },
   });
 }
 
@@ -278,4 +324,52 @@ export async function stopRtt(): Promise<void> {
 
 export async function writeRtt(options: RttWriteOptions): Promise<number> {
   return await invoke<number>("write_rtt", { options });
+}
+
+// ===== 串口 OTA（Bootloader 接收端协议） =====
+export interface SerialOtaDeviceStatus {
+  protocol_version: number;
+  state: number;
+  state_text: string;
+  active_slot: string;
+  swap_state: string;
+  received: number;
+  total: number;
+  primary_version: Option<string>;
+  secondary_version: Option<string>;
+  slot_size: number;
+  uid: string;
+  boot_version: string;
+}
+
+export interface SerialOtaResult {
+  total_size: number;
+  crc32: number;
+  sha256: string;
+  duration_ms: number;
+  applied: boolean;
+  device: Option<SerialOtaDeviceStatus>;
+  running_version: Option<string>;
+  verified: boolean;
+}
+
+export interface SerialOtaProgress {
+  phase: string;
+  progress: number;
+  sent: number;
+  total: number;
+  message: string;
+  log: boolean;
+}
+
+export async function serialOtaFlash(imagePath: string): Promise<SerialOtaResult> {
+  return await invoke<SerialOtaResult>("serial_ota_flash", { imagePath });
+}
+
+export async function serialOtaAbort(): Promise<void> {
+  return await invoke("serial_ota_abort");
+}
+
+export async function serialOtaDeviceInfo(): Promise<SerialOtaDeviceStatus> {
+  return await invoke<SerialOtaDeviceStatus>("serial_ota_device_info");
 }

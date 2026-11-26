@@ -59,6 +59,8 @@ interface SerialStore {
   form: SerialForm;
   connected: boolean;
   running: boolean;
+  /** 串口 OTA 独占串口期间为 true（接收线程被暂停） */
+  otaBusy: boolean;
   error: string | null;
   lines: SerialLine[];
   autoScroll: boolean;
@@ -86,6 +88,7 @@ interface SerialStore {
   setSplitView: (value: boolean) => void;
   setViewMode: (value: DataViewMode) => void;
   applyStatus: (connected: boolean, running: boolean, error: string | null) => void;
+  setOtaBusy: (value: boolean) => void;
 }
 
 const DEFAULT_FORM: SerialForm = {
@@ -116,6 +119,7 @@ export const useSerialStore = create<SerialStore>()(
       form: { ...DEFAULT_FORM },
       connected: false,
       running: false,
+      otaBusy: false,
       error: null,
       lines: [],
       autoScroll: true,
@@ -262,6 +266,7 @@ export const useSerialStore = create<SerialStore>()(
       setSplitView: (value) => set({ splitView: value }),
       setViewMode: (value) => set({ viewMode: value }),
       applyStatus: (connected, running, error) => set({ connected, running, error }),
+      setOtaBusy: (value) => set({ otaBusy: value }),
     }),
     {
       name: "ota-host-serial",

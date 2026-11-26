@@ -9,6 +9,7 @@ import {
   type ImageInfo,
 } from "@/lib/tauri";
 import { parseHexNumber } from "@/lib/hex";
+import { formatBytes } from "@/lib/utils";
 import { useLogStore } from "./logStore";
 import { useOtaStore } from "./otaStore";
 import { useSettingsStore } from "./settingsStore";
@@ -29,11 +30,13 @@ interface FlashStore {
 
   setFirmwarePath: (path: string) => void;
   selectFirmware: () => Promise<void>;
+  clearFirmware: () => void;
   inspect: () => Promise<void>;
   setAddressMode: (mode: FlashAddressMode) => void;
   setCustomAddress: (value: string) => void;
   setOptions: (options: { verify?: boolean; reset?: boolean }) => void;
   resolveAddress: () => number | null;
+  validateFlash: (firmwareSize?: number) => string | null;
   flash: () => Promise<void>;
   clearLogs: () => void;
 }
@@ -65,6 +68,9 @@ export const useFlashStore = create<FlashStore>()(
         set({ firmwarePath: path, imageInfo: null });
         await get().inspect();
       },
+
+      clearFirmware: () =>
+        set({ firmwarePath: "", imageInfo: null, progress: null, inspecting: false }),
 
       inspect: async () => {
         const path = get().firmwarePath;
@@ -100,24 +106,72 @@ export const useFlashStore = create<FlashStore>()(
         return parseHexNumber(customAddress);
       },
 
+      /** 烧录前安全检查：地址、引导区、槽容量与芯片 Flash 范围 */
+      validateFlash: (firmwareSize) => {
+        const { firmwarePath, imageInfo, addressMode } = get();
+        if (!firmwarePath) return "请先选择固件文件";
+        if (!useOtaStore.getState().connected) return "请先连接调试探针";
+
+        const address = get().resolveAddress();
+        if (address === null) return "烧录地址无效，请检查自定义地址（例如 0x08020000）";
+        if (address % 4 !== 0) return "烧录地址需 4 字节对齐";
+
+        const { partition } = useSettingsStore.getState();
+        if (address < partition.primaryBase) {
+          return `0x${address.toString(16).toUpperCase()} 位于引导区，禁止覆盖（Primary 从 0x${partition.primaryBase.toString(16).toUpperCase()} 开始）`;
+        }
+
+        const size = firmwareSize ?? imageInfo?.file_size;
+        if (size == null) return null;
+
+        if (addressMode !== "custom" && size > partition.slotSize) {
+          return `固件大小 ${formatBytes(size)} 超过槽容量 ${formatBytes(partition.slotSize)}`;
+        }
+
+        const chipInfo = useOtaStore.getState().chipInfo;
+        const flashRegions = chipInfo?.memory_regions.filter((region) => region.kind === "Flash") ?? [];
+        if (flashRegions.length > 0) {
+          const fits = flashRegions.some(
+            (region) => address >= region.address && address + size <= region.address + region.size
+          );
+          if (!fits) return `固件范围超出 ${chipInfo?.name ?? "所选芯片"} 的 Flash 区域`;
+        }
+
+        return null;
+      },
+
       flash: async () => {
         const addLog = useLogStore.getState().addLog;
         const { firmwarePath, verify, reset } = get();
-        const address = get().resolveAddress();
-        const connected = useOtaStore.getState().connected;
 
         if (!firmwarePath) {
           addLog("warn", "请先选择要烧录的固件文件");
           return;
         }
-        if (address === null) {
-          addLog("warn", "烧录地址无效，请检查自定义地址（例如 0x08020000）");
+
+        let error = get().validateFlash();
+        if (error) {
+          addLog("warn", error);
           return;
         }
-        if (!connected) {
-          addLog("warn", "探针未连接：请先连接调试探针");
+
+        // 地址等基础检查通过后，确保固件已解析出大小再校验容量/范围
+        if (!get().imageInfo) {
+          await get().inspect();
+          if (!get().imageInfo) {
+            addLog("warn", "无法解析固件文件，已取消烧录");
+            return;
+          }
+        }
+
+        error = get().validateFlash();
+        if (error) {
+          addLog("warn", error);
           return;
         }
+
+        const address = get().resolveAddress();
+        if (address === null) return;
 
         set({ flashing: true, progress: null, logs: [] });
 

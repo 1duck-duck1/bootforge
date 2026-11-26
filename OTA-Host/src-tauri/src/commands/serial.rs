@@ -1,6 +1,7 @@
 use crate::serial::{list_serial_ports, LocalSerial, SerialConfig, SerialPortInfo};
 use crate::state::{AppState, DataSource, SerialState};
 use serde::Serialize;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, State};
@@ -35,6 +36,9 @@ pub fn list_serial_ports_cmd() -> Result<Vec<SerialPortInfo>, String> {
 /// Connect to a serial port
 #[tauri::command]
 pub async fn connect_serial(config: SerialConfig, state: State<'_, AppState>) -> Result<(), String> {
+    if state.serial_ota.running.load(Ordering::Acquire) {
+        return Err("串口 OTA 正在进行，暂时不能重新连接串口".to_string());
+    }
     let serial_state = Arc::clone(&state.serial_state);
     run_blocking(move || {
         // Stop any existing polling first
@@ -140,6 +144,9 @@ pub async fn write_serial_string(
 /// - async 侧只做 batching/emit，不再用 polling timer。
 #[tauri::command]
 pub async fn start_serial(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    if state.serial_ota.running.load(Ordering::Acquire) {
+        return Err("串口 OTA 正在进行，暂不能开始接收".to_string());
+    }
     if state.serial_state.is_running() {
         return Ok(());
     }
