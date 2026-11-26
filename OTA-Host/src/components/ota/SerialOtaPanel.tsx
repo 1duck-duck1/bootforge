@@ -1,6 +1,20 @@
-import { useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Cable, Cpu, FolderOpen, Loader2, RefreshCw, Rocket } from "lucide-react";
+import {
+  AlertTriangle,
+  Cable,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Cpu,
+  FolderOpen,
+  Loader2,
+  MinusCircle,
+  RefreshCw,
+  Rocket,
+} from "lucide-react";
 import { useOtaStore } from "@/stores/otaStore";
 import { useSerialStore } from "@/stores/serialStore";
 import { useSerialOtaStore } from "@/stores/serialOtaStore";
@@ -23,9 +37,82 @@ const PHASE_LABELS: Record<string, string> = {
   error: "失败",
 };
 
+const STEPS = ["连接", "Boot", "查询", "擦除", "写入", "校验", "APPLY", "回连"];
+const PHASE_STEP: Record<string, number> = {
+  connecting: 0,
+  enter: 1,
+  query: 2,
+  start: 3,
+  data: 4,
+  end: 5,
+  apply: 6,
+  verify: 7,
+};
+
+type PreflightState = "ok" | "warn" | "info";
+
+function fileName(path: string): string {
+  return path.split(/[\\/]/).pop() ?? path;
+}
+
+function Section({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-1.5">
+      <div className="flex h-5 items-center gap-1.5">
+        <span className="text-[10px] font-medium tracking-wide text-muted-foreground/70">
+          {title}
+        </span>
+        {action && <div className="ml-auto flex items-center gap-1">{action}</div>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function PreflightRow({
+  state,
+  label,
+  detail,
+}: {
+  state: PreflightState;
+  label: string;
+  detail: string;
+}) {
+  const Icon = state === "ok" ? CheckCircle2 : state === "warn" ? AlertTriangle : MinusCircle;
+  return (
+    <div className="flex min-w-0 items-start gap-1">
+      <Icon
+        className={cn(
+          "mt-0.5 h-3 w-3 shrink-0",
+          state === "ok"
+            ? "text-success"
+            : state === "warn"
+              ? "text-warning"
+              : "text-muted-foreground/50"
+        )}
+      />
+      <div className="min-w-0 leading-tight">
+        <p className="text-[10.5px] text-foreground">{label}</p>
+        <p className="truncate text-[10px] text-muted-foreground" title={detail}>
+          {detail}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function SerialOtaPanel() {
   const form = useOtaStore((s) => s.form);
   const signResult = useOtaStore((s) => s.result);
+  const imageInfo = useOtaStore((s) => s.imageInfo);
 
   const ports = useSerialStore((s) => s.ports);
   const serialForm = useSerialStore((s) => s.form);
@@ -52,8 +139,25 @@ export function SerialOtaPanel() {
   const start = useSerialOtaStore((s) => s.start);
   const cancel = useSerialOtaStore((s) => s.cancel);
 
+  const [logsOpen, setLogsOpen] = useState(true);
+  const [copied, setCopied] = useState<"result" | "logs" | null>(null);
+  const copyTimer = useRef<number | null>(null);
+
   const binPath = manualPath ?? signResult?.output_path ?? form.outputPath;
   const percent = Math.round(progress * 100);
+  const inspectedImage =
+    imageInfo && binPath && imageInfo.path === binPath ? imageInfo : null;
+  const imageOk = inspectedImage?.valid === true && inspectedImage?.hash_match === true;
+
+  const activeStep = PHASE_STEP[phase];
+  const lastStepRef = useRef(-1);
+  useEffect(() => {
+    if (activeStep !== undefined) {
+      lastStepRef.current = activeStep;
+    }
+  }, [activeStep]);
+  const failed = phase === "error" || phase === "cancelled";
+  const shownStep = phase === "complete" ? STEPS.length : activeStep ?? lastStepRef.current;
 
   const pickImage = async () => {
     const file = await open({
@@ -66,12 +170,36 @@ export function SerialOtaPanel() {
     }
   };
 
+  const copy = async (text: string, key: "result" | "logs") => {
+    if (!navigator.clipboard) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+      if (copyTimer.current !== null) {
+        window.clearTimeout(copyTimer.current);
+      }
+      copyTimer.current = window.setTimeout(() => setCopied(null), 1500);
+    } catch {
+      /* 剪贴板不可用时静默忽略 */
+    }
+  };
+
   const logRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
   }, [logs]);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimer.current !== null) {
+        window.clearTimeout(copyTimer.current);
+      }
+    };
+  }, []);
 
   // 端口热插拔：未连接且没有 OTA 任务时每 2s 刷新
   useEffect(() => {
@@ -84,8 +212,60 @@ export function SerialOtaPanel() {
     return () => window.clearInterval(timer);
   }, [refreshPorts]);
 
+  const preflight: { state: PreflightState; label: string; detail: string }[] = [
+    {
+      state: connected ? "ok" : "warn",
+      label: "串口",
+      detail: connected
+        ? `${serialForm.port} @ ${serialForm.baudRate}`
+        : "未连接，开始时会自动连接",
+    },
+    {
+      state: binPath ? "ok" : "warn",
+      label: "固件",
+      detail: binPath ? fileName(binPath) : "未选择 · 左侧签名或点“选择”",
+    },
+    {
+      state: !inspectedImage ? "info" : imageOk ? "ok" : "warn",
+      label: "镜像",
+      detail: !inspectedImage
+        ? "未校验（可选）"
+        : `${inspectedImage.version ? `v${inspectedImage.version}` : "无版本"} · ${
+            imageOk ? "哈希通过" : inspectedImage.valid ? "哈希未通过" : "结构无效"
+          }`,
+    },
+    {
+      state: deviceInfo ? "ok" : "info",
+      label: "设备",
+      detail: deviceInfo
+        ? `主槽 ${deviceInfo.primary_version ? `v${deviceInfo.primary_version}` : "空"} · 副槽 ${
+            deviceInfo.secondary_version ? `v${deviceInfo.secondary_version}` : "空"
+          }`
+        : "未读取（可选）",
+    },
+  ];
+
+  const resultText = otaResult
+    ? [
+        "串口 OTA 结果",
+        `大小: ${formatBytes(otaResult.total_size)}`,
+        `CRC32: ${otaResult.crc32.toString(16).toUpperCase().padStart(8, "0")}`,
+        `SHA-256: ${otaResult.sha256}`,
+        `耗时: ${(otaResult.duration_ms / 1000).toFixed(1)} s`,
+        otaResult.device?.primary_version
+          ? `升级前主槽: v${otaResult.device.primary_version}`
+          : "",
+        otaResult.running_version
+          ? `升级后运行: v${otaResult.running_version}`
+          : "升级后运行: 未确认",
+        `校验: ${otaResult.verified ? "一致" : "不一致"}`,
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : "";
+
   return (
-    <div className="flex flex-col gap-2.5 rounded-xl border bg-card p-3">
+    <div className="flex flex-col gap-3 rounded-xl border bg-card p-3">
       <div className="flex items-center gap-2">
         <Cable className="h-4 w-4 text-primary" />
         <h2 className="text-sm font-semibold">串口 OTA</h2>
@@ -94,280 +274,363 @@ export function SerialOtaPanel() {
         </span>
       </div>
 
-      {/* 串口连接 */}
-      {connected ? (
-        <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-2.5 py-1.5 text-[11px]">
-          <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
-          <span className="terminal-font truncate">{serialForm.port}</span>
-          <span className="text-muted-foreground">@{serialForm.baudRate}</span>
+      <Section title="连接">
+        {connected ? (
+          <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-2.5 py-1.5 text-[11px]">
+            <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+            <span className="terminal-font truncate">{serialForm.port}</span>
+            <span className="text-muted-foreground">@{serialForm.baudRate}</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto h-6 px-2 text-[11px]"
+              disabled={running}
+              onClick={() => void disconnect()}
+            >
+              断开
+            </Button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <Select
+              value={serialForm.port}
+              onChange={(e) => setSerialForm({ port: e.target.value })}
+              disabled={running}
+              className="h-8 text-xs"
+            >
+              {ports.length === 0 && <option value="">（未检测到串口）</option>}
+              {ports.map((port) => (
+                <option key={port.name} value={port.name}>
+                  {port.name}
+                  {port.description ? ` - ${port.description}` : ""}
+                </option>
+              ))}
+            </Select>
+            <Button
+              size="sm"
+              className="h-8 shrink-0"
+              disabled={!serialForm.port || running}
+              onClick={() => void connect()}
+            >
+              连接
+            </Button>
+          </div>
+        )}
+
+        {serialForm.baudRate !== 115200 && (
+          <p className="text-[10.5px] text-warning">
+            设备端固定 115200 8N1，当前波特率可能无法通信。
+            <button
+              type="button"
+              className="ml-1 underline underline-offset-2"
+              onClick={() => setSerialForm({ baudRate: 115200 })}
+            >
+              改为 115200
+            </button>
+          </p>
+        )}
+
+        {!connected && serialError && (
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-[10.5px] leading-relaxed text-destructive">
+            串口连接失败：{serialError}
+          </p>
+        )}
+      </Section>
+
+      <Section
+        title="设备"
+        action={
           <Button
             variant="ghost"
             size="sm"
-            className="ml-auto h-6 px-2 text-[11px]"
-            disabled={running}
-            onClick={() => void disconnect()}
+            className="h-5 px-1.5 text-[10px]"
+            disabled={running || readingDevice}
+            onClick={() => void readDeviceInfo()}
           >
-            断开
+            <RefreshCw className={cn("mr-1 h-3 w-3", readingDevice && "animate-spin")} />
+            {readingDevice ? "读取中" : "读取"}
           </Button>
-        </div>
-      ) : (
-        <div className="flex gap-2">
-          <Select
-            value={serialForm.port}
-            onChange={(e) => setSerialForm({ port: e.target.value })}
-            disabled={running}
-            className="h-8 text-xs"
-          >
-            {ports.length === 0 && <option value="">（未检测到串口）</option>}
-            {ports.map((port) => (
-              <option key={port.name} value={port.name}>
-                {port.name}
-                {port.description ? ` - ${port.description}` : ""}
-              </option>
-            ))}
-          </Select>
-          <Button
-            size="sm"
-            className="h-8 shrink-0"
-            disabled={!serialForm.port || running}
-            onClick={() => void connect()}
-          >
-            连接
-          </Button>
-        </div>
-      )}
-
-      {serialForm.baudRate !== 115200 && (
-        <p className="text-[10.5px] text-warning">
-          设备端固定 115200 8N1，当前波特率可能无法通信。
-          <button
-            type="button"
-            className="ml-1 underline underline-offset-2"
-            onClick={() => setSerialForm({ baudRate: 115200 })}
-          >
-            改为 115200
-          </button>
-        </p>
-      )}
-
-      {!connected && serialError && (
-        <p className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-[10.5px] leading-relaxed text-destructive">
-          串口连接失败：{serialError}
-        </p>
-      )}
-
-      {/* 设备信息（协议 v2）：读取会重启设备进入 Boot 查询，随后自动返回应用 */}
-      <div className="flex flex-col gap-1">
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 w-full text-[11px]"
-          disabled={running || readingDevice}
-          onClick={() => void readDeviceInfo()}
-        >
-          <RefreshCw className={cn("mr-1 h-3 w-3", readingDevice && "animate-spin")} />
-          {readingDevice ? "读取中..." : "读取设备状态"}
-        </Button>
-        <p className="text-[10px] leading-relaxed text-muted-foreground">
-          读取状态会让设备重启进入 Boot 查询，随后自动返回应用，不会修改固件。
-        </p>
-      </div>
-
-      {deviceInfo && (
-        <div className="rounded-lg border bg-muted/30 p-2.5 text-[10.5px] leading-relaxed">
-          <div className="flex items-center gap-1.5">
-            <Cpu className="h-3.5 w-3.5 text-primary" />
-            <span className="font-medium">设备信息</span>
-            <span className="ml-auto text-muted-foreground">
-              协议 v{deviceInfo.protocol_version} · Boot {deviceInfo.boot_version}
-            </span>
+        }
+      >
+        {deviceInfo ? (
+          <div className="rounded-lg border bg-muted/30 p-2.5 text-[10.5px] leading-relaxed">
+            <div className="flex items-center gap-1.5">
+              <Cpu className="h-3.5 w-3.5 text-primary" />
+              <span className="font-medium">设备信息</span>
+              <span className="ml-auto text-muted-foreground">
+                协议 v{deviceInfo.protocol_version} · Boot {deviceInfo.boot_version}
+              </span>
+            </div>
+            <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-muted-foreground">
+              <span>
+                运行槽{" "}
+                <span className="terminal-font text-foreground">{deviceInfo.active_slot}</span>
+              </span>
+              <span>
+                主槽{" "}
+                <span className="terminal-font text-foreground">
+                  {deviceInfo.primary_version ? `v${deviceInfo.primary_version}` : "空"}
+                </span>
+              </span>
+              <span>
+                副槽{" "}
+                <span className="terminal-font text-foreground">
+                  {deviceInfo.secondary_version ? `v${deviceInfo.secondary_version}` : "空"}
+                </span>
+              </span>
+              <span>
+                槽容量{" "}
+                <span className="terminal-font text-foreground">
+                  {deviceInfo.slot_size ? formatBytes(deviceInfo.slot_size) : "—"}
+                </span>
+              </span>
+              <span className="col-span-2 break-all">
+                UID{" "}
+                <span className="terminal-font text-foreground">{deviceInfo.uid || "—"}</span>
+              </span>
+              <span className="col-span-2">
+                交换状态 <span className="text-foreground">{deviceInfo.swap_state}</span>
+              </span>
+            </div>
           </div>
-          <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-muted-foreground">
-            <span>
-              运行槽{" "}
-              <span className="terminal-font text-foreground">{deviceInfo.active_slot}</span>
-            </span>
-            <span>
-              主槽{" "}
-              <span className="terminal-font text-foreground">
-                {deviceInfo.primary_version ? `v${deviceInfo.primary_version}` : "空"}
-              </span>
-            </span>
-            <span>
-              副槽{" "}
-              <span className="terminal-font text-foreground">
-                {deviceInfo.secondary_version ? `v${deviceInfo.secondary_version}` : "空"}
-              </span>
-            </span>
-            <span>
-              槽容量{" "}
-              <span className="terminal-font text-foreground">
-                {deviceInfo.slot_size ? formatBytes(deviceInfo.slot_size) : "—"}
-              </span>
-            </span>
-            <span className="col-span-2 break-all">
-              UID{" "}
-              <span className="terminal-font text-foreground">{deviceInfo.uid || "—"}</span>
-            </span>
-            <span className="col-span-2">
-              交换状态 <span className="text-foreground">{deviceInfo.swap_state}</span>
-            </span>
-          </div>
-        </div>
-      )}
-
-      <div className="flex items-center gap-2">
-        <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={binPath}>
-          固件：{binPath || "（未选择已签名 .bin）"}
-        </p>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-6 shrink-0 px-2 text-[11px]"
-          disabled={running}
-          onClick={() => void pickImage()}
-        >
-          <FolderOpen className="mr-1 h-3 w-3" />
-          选择
-        </Button>
-      </div>
-
-      <div className="flex gap-2">
-        <Button
-          className="flex-1"
-          disabled={running}
-          onClick={() => void start(binPath)}
-        >
-          {running ? (
-            <>
-              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              升级中...
-            </>
-          ) : (
-            <>
-              <Rocket className="mr-1.5 h-4 w-4" />
-              开始串口 OTA
-            </>
-          )}
-        </Button>
-        {running && (
-          <Button variant="outline" onClick={() => void cancel()}>
-            取消
-          </Button>
+        ) : (
+          <p className="text-[10px] leading-relaxed text-muted-foreground/70">
+            尚未读取。读取会让设备重启进入 Boot 查询，随后自动返回应用，不会修改固件。
+          </p>
         )}
-      </div>
+      </Section>
 
-      {!running && !connected && (
-        <p className="text-[10.5px] leading-relaxed text-warning">
-          串口未连接：点击“开始”会自动连接当前端口，也可先在上方点击“连接”。
-        </p>
-      )}
-      {!running && connected && !binPath && (
-        <p className="text-[10.5px] leading-relaxed text-warning">
-          未选择固件：请先在左侧完成签名，或点击“选择”指定已签名 .bin。
-        </p>
-      )}
+      <Section title="固件">
+        <div className="flex items-center gap-2">
+          <p
+            className={cn(
+              "min-w-0 flex-1 truncate text-[11px]",
+              binPath ? "text-muted-foreground" : "text-warning"
+            )}
+            title={binPath}
+          >
+            {binPath || "（未选择已签名 .bin）"}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 shrink-0 px-2 text-[11px]"
+            disabled={running}
+            onClick={() => void pickImage()}
+          >
+            <FolderOpen className="mr-1 h-3 w-3" />
+            选择
+          </Button>
+        </div>
+      </Section>
 
-      {/* 进度 */}
-      {(running || phase !== "idle") && (
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between gap-2 text-[11px]">
-            <span
-              className={cn(
-                "font-medium",
-                phase === "complete"
-                  ? "text-success"
-                  : phase === "error"
-                    ? "text-destructive"
-                    : "text-foreground"
-              )}
-            >
-              {PHASE_LABELS[phase] ?? phase}
-              {phase === "data" ? ` ${percent}%` : ""}
-            </span>
-            {total > 0 && (
-              <span className="terminal-font text-[10.5px] text-muted-foreground">
-                {formatBytes(sent)} / {formatBytes(total)}
+      <Section title="升级">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-lg border bg-muted/20 p-2">
+          {preflight.map((item) => (
+            <PreflightRow key={item.label} {...item} />
+          ))}
+        </div>
+
+        <div className="flex gap-2">
+          <Button
+            className="flex-1"
+            disabled={running}
+            onClick={() => void start(binPath)}
+          >
+            {running ? (
+              <>
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                升级中...
+              </>
+            ) : (
+              <>
+                <Rocket className="mr-1.5 h-4 w-4" />
+                开始串口 OTA
+              </>
+            )}
+          </Button>
+          {running && (
+            <Button variant="outline" onClick={() => void cancel()}>
+              取消
+            </Button>
+          )}
+        </div>
+
+        {(running || phase !== "idle") && (
+          <div className="flex flex-col gap-1.5 rounded-lg border bg-muted/20 p-2">
+            <div className="flex items-center justify-between gap-2 text-[11px]">
+              <span
+                className={cn(
+                  "font-medium",
+                  phase === "complete"
+                    ? "text-success"
+                    : phase === "error"
+                      ? "text-destructive"
+                      : "text-foreground"
+                )}
+              >
+                {PHASE_LABELS[phase] ?? phase}
+                {phase === "data" ? ` ${percent}%` : ""}
               </span>
+              {total > 0 && (
+                <span className="terminal-font text-[10.5px] text-muted-foreground">
+                  {formatBytes(sent)} / {formatBytes(total)}
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-start gap-1">
+              {STEPS.map((label, index) => {
+                const done = shownStep > index;
+                const current = index === shownStep;
+                return (
+                  <div key={label} className="flex min-w-0 flex-1 flex-col items-center gap-1">
+                    <div
+                      className={cn(
+                        "flex h-4 w-4 items-center justify-center rounded-full border text-[9px]",
+                        done && "border-primary bg-primary text-primary-foreground",
+                        current && !failed && "border-primary text-primary",
+                        current && failed && "border-destructive text-destructive",
+                        !done && !current && "border-border text-muted-foreground/50"
+                      )}
+                    >
+                      {done ? <Check className="h-2.5 w-2.5" /> : index + 1}
+                    </div>
+                    <span
+                      className={cn(
+                        "w-full truncate text-center text-[9px] leading-none",
+                        current && failed
+                          ? "text-destructive"
+                          : current
+                            ? "text-foreground"
+                            : done
+                              ? "text-foreground/70"
+                              : "text-muted-foreground/50"
+                      )}
+                    >
+                      {label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all duration-200",
+                  phase === "complete"
+                    ? "bg-emerald-500"
+                    : phase === "error"
+                      ? "bg-destructive"
+                      : "bg-primary"
+                )}
+                style={{ width: `${Math.max(2, percent)}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-[10.5px] leading-relaxed text-destructive">
+            {error}
+          </p>
+        )}
+
+        {otaResult && (
+          <div
+            className={cn(
+              "rounded-lg border p-2 text-[10.5px] leading-relaxed",
+              otaResult.verified
+                ? "border-success/40 bg-success/10 text-success"
+                : "border-warning/40 bg-warning/10 text-warning"
+            )}
+          >
+            <div className="flex items-center gap-1.5">
+              {otaResult.verified ? (
+                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+              ) : (
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              )}
+              <span className="font-medium">
+                {otaResult.verified ? "升级完成，版本校验一致" : "升级完成，版本校验未通过"}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto h-5 px-1.5 text-[10px]"
+                onClick={() => void copy(resultText, "result")}
+              >
+                {copied === "result" ? "已复制" : <Copy className="h-3 w-3" />}
+              </Button>
+            </div>
+            <p className="mt-1">
+              升级完成：{formatBytes(otaResult.total_size)} · CRC32{" "}
+              <span className="terminal-font">
+                {otaResult.crc32.toString(16).toUpperCase().padStart(8, "0")}
+              </span>{" "}
+              · {(otaResult.duration_ms / 1000).toFixed(1)} s
+            </p>
+            <p className="truncate terminal-font" title={otaResult.sha256}>
+              SHA-256 {otaResult.sha256}
+            </p>
+            {otaResult.device?.primary_version && (
+              <p className="text-muted-foreground">
+                升级前主槽 v{otaResult.device.primary_version}
+                {otaResult.device.secondary_version
+                  ? ` · 副槽 v${otaResult.device.secondary_version}`
+                  : " · 副槽为空"}
+              </p>
+            )}
+            <p>
+              {otaResult.running_version
+                ? `升级后运行 v${otaResult.running_version}${
+                    otaResult.verified ? "（校验一致）" : "（与目标版本不一致）"
+                  }`
+                : "未能回连确认升级结果，请手动检查设备"}
+            </p>
+          </div>
+        )}
+
+        {logs.length > 0 && (
+          <div className="rounded-lg border bg-muted/30">
+            <div className="flex h-7 items-center gap-1.5 border-b px-2">
+              <span className="text-[10px] font-medium tracking-wide text-muted-foreground/70">
+                流程日志
+              </span>
+              <span className="text-[10px] text-muted-foreground/50">{logs.length}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto h-5 px-1.5 text-[10px]"
+                onClick={() => void copy(logs.join("\n"), "logs")}
+              >
+                {copied === "logs" ? "已复制" : <Copy className="h-3 w-3" />}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5"
+                onClick={() => setLogsOpen((v) => !v)}
+              >
+                {logsOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              </Button>
+            </div>
+            {logsOpen && (
+              <div
+                ref={logRef}
+                className="terminal-font max-h-32 overflow-y-auto px-2.5 py-1.5 text-[11px] leading-relaxed text-muted-foreground"
+              >
+                {logs.map((line, index) => (
+                  <div key={index} className="whitespace-pre-wrap break-all">
+                    {line}
+                  </div>
+                ))}
+              </div>
             )}
           </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-            <div
-              className={cn(
-                "h-full rounded-full transition-all duration-200",
-                phase === "complete"
-                  ? "bg-emerald-500"
-                  : phase === "error"
-                    ? "bg-destructive"
-                    : "bg-primary"
-              )}
-              style={{ width: `${Math.max(2, percent)}%` }}
-            />
-          </div>
-        </div>
-      )}
-
-      {error && (
-        <p className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-[10.5px] leading-relaxed text-destructive">
-          {error}
-        </p>
-      )}
-
-      {otaResult && (
-        <div
-          className={cn(
-            "rounded-lg border p-2 text-[10.5px] leading-relaxed",
-            otaResult.verified
-              ? "border-success/40 bg-success/10 text-success"
-              : "border-warning/40 bg-warning/10 text-warning"
-          )}
-        >
-          <p>
-            升级完成：{formatBytes(otaResult.total_size)} · CRC32{" "}
-            <span className="terminal-font">
-              {otaResult.crc32.toString(16).toUpperCase().padStart(8, "0")}
-            </span>
-          </p>
-          <p className="truncate terminal-font" title={otaResult.sha256}>
-            SHA-256 {otaResult.sha256}
-          </p>
-          {otaResult.device?.primary_version && (
-            <p className="text-muted-foreground">
-              升级前主槽 v{otaResult.device.primary_version}
-              {otaResult.device.secondary_version
-                ? ` · 副槽 v${otaResult.device.secondary_version}`
-                : " · 副槽为空"}
-            </p>
-          )}
-          <p>
-            {otaResult.running_version
-              ? `升级后运行 v${otaResult.running_version}${
-                  otaResult.verified ? "（校验一致）" : "（与目标版本不一致）"
-                }`
-              : "未能回连确认升级结果，请手动检查设备"}
-          </p>
-        </div>
-      )}
-
-      {/* 流程日志 */}
-      {logs.length > 0 && (
-        <div className="max-h-32 overflow-hidden rounded-lg border bg-muted/40">
-          <div
-            ref={logRef}
-            className="terminal-font max-h-32 overflow-y-auto px-2.5 py-1.5 text-[11px] leading-relaxed text-muted-foreground"
-          >
-            {logs.map((line, index) => (
-              <div key={index} className="whitespace-pre-wrap break-all">
-                {line}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <p className="text-[10.5px] leading-relaxed text-muted-foreground">
-        点击开始会先发送 OTA 握手命令，App 收到后复位进入 Boot；串口搬运与写 flash 全部由 Boot 完成，App 损坏时 Boot 会自动常驻 OTA。升级期间串口监视暂停，APPLY 后设备自动复位并由 MCUboot 完成交换，随后自动回连读取运行版本并返回应用。
-      </p>
+        )}
+      </Section>
     </div>
   );
 }

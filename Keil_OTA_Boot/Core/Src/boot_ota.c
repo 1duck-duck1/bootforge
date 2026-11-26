@@ -247,7 +247,7 @@ static uint32_t slot_version(uint8_t area_id)
         magic == OTA_IMAGE_MAGIC &&
         flash_area_read(fa, 20, v, sizeof(v)) == 0) {
         ver = ((uint32_t)v[0] << 24) | ((uint32_t)v[1] << 16) |
-              ((uint32_t)v[2] << 8) | (uint32_t)v[3];
+              ((uint32_t)v[3] << 8) | (uint32_t)v[2];
     }
     flash_area_close(fa);
     return ver;
@@ -264,6 +264,48 @@ static void ota_session_reset(void)
         flash_area_close(img_fa);
         img_fa = NULL;
     }
+}
+
+/*
+ * Erase only what the transfer needs: every sector the image touches,
+ * plus the last sector of the slot. MCUboot keeps its trailer (swap
+ * flags + magic) at the end of the slot; boot_set_pending() programs it
+ * without erasing, and after a swap the secondary slot still carries the
+ * previous image's trailer, so that sector must always be erased.
+ */
+static int ota_erase_image(const struct flash_area *fa, uint32_t total)
+{
+    struct flash_sector sectors[MCUBOOT_MAX_IMG_SECTORS];
+    uint32_t cnt = MCUBOOT_MAX_IMG_SECTORS;
+    uint32_t erase_end = 0U;
+    uint32_t i;
+
+    if (flash_area_get_sectors(fa->fa_id, &cnt, sectors) != 0 || cnt == 0U) {
+        return -1;
+    }
+
+    for (i = 0U; i < cnt; i++) {
+        if (sectors[i].fs_off < total) {
+            erase_end = sectors[i].fs_off + sectors[i].fs_size;
+        }
+    }
+    if (erase_end == 0U) {
+        return -1;
+    }
+
+    if (flash_area_erase(fa, 0U, erase_end) != 0) {
+        return -1;
+    }
+
+    /* The trailer sector is separate unless the image reaches into it. */
+    if (sectors[cnt - 1U].fs_off >= total) {
+        if (flash_area_erase(fa, sectors[cnt - 1U].fs_off,
+                             sectors[cnt - 1U].fs_size) != 0) {
+            return -1;
+        }
+    }
+
+    return 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -300,10 +342,12 @@ static void ota_handle_start(uint8_t seq, const uint8_t *p, uint16_t len)
         return;
     }
 
-    /* Erasing three 128 KB sectors stalls the CPU for a few seconds; the
-     * host uses a 30 s ACK timeout for START. */
+    /* Erase only the sectors this image occupies plus the slot's last
+     * sector, where MCUboot keeps its trailer (programmed, not erased, by
+     * boot_set_pending()). A full-slot image still erases all three 128 KB
+     * sectors; the host's 30 s START timeout covers the worst case. */
     MCUBOOT_LOG_INF("OTA START size=%u", (unsigned)total);
-    if (flash_area_erase(img_fa, 0, img_fa->fa_size) != 0) {
+    if (ota_erase_image(img_fa, total) != 0) {
         ota_nack(seq, OTA_ERR_ERASE, 0);
         flash_area_close(img_fa);
         img_fa = NULL;

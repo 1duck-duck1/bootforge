@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
@@ -41,13 +41,6 @@ export function SignPanel() {
   const imageInfoError = useOtaStore((s) => s.imageInfoError);
   const inspectingImage = useOtaStore((s) => s.inspectingImage);
   const inspect = useOtaStore((s) => s.inspect);
-
-  const logRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight;
-    }
-  }, [signLogs]);
 
   const pickInput = async () => {
     const file = await open({
@@ -136,6 +129,15 @@ export function SignPanel() {
       {result && (
         <p className="rounded-lg border border-success/40 bg-success/10 p-2.5 text-xs text-success">
           签名完成：{result.output_path}（{formatBytes(result.size)}）
+        </p>
+      )}
+
+      {!signing && !result && signLogs.length > 0 && (
+        <p
+          className="truncate rounded-lg border border-destructive/40 bg-destructive/10 p-2 text-[11px] text-destructive"
+          title={signLogs.join("\n")}
+        >
+          {signLogs[signLogs.length - 1]}
         </p>
       )}
 
@@ -254,25 +256,6 @@ export function SignPanel() {
                 </div>
               )}
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* imgtool 输出日志 */}
-      <div className="flex min-h-24 flex-1 flex-col overflow-hidden rounded-lg border bg-muted/30">
-        <div className="border-b px-2.5 py-1 text-[11px] text-muted-foreground">imgtool 输出</div>
-        <div
-          ref={logRef}
-          className="terminal-font min-h-0 flex-1 overflow-y-auto px-2.5 py-1.5 text-[11px] leading-relaxed"
-        >
-          {signLogs.length === 0 ? (
-            <span className="text-muted-foreground/60">暂无输出</span>
-          ) : (
-            signLogs.map((line, index) => (
-              <div key={index} className="whitespace-pre-wrap break-all text-muted-foreground">
-                {line}
-              </div>
-            ))
           )}
         </div>
       </div>

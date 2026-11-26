@@ -6,7 +6,7 @@
 //!   CRC16 = CCITT-FALSE（poly 0x1021，init 0xFFFF），覆盖 TYPE..PAYLOAD。
 //!
 //! 流程：OTA 握手（让 App 复位进入 Boot）-> QUERY（确认 Boot 在线并中止旧会话）
-//!       -> START（擦除副槽）-> DATA（每块 1020 字节，Stop-and-Wait）
+//!       -> START（按镜像大小擦除副槽扇区）-> DATA（每块 1020 字节，Stop-and-Wait）
 //!       -> END（CRC32/SHA-256 校验）-> APPLY（boot_set_pending + 复位）
 //!       -> 回连 QUERY 校验运行版本 -> EXIT（立即返回应用）。
 //!
@@ -491,6 +491,51 @@ fn image_version(image: &[u8]) -> Option<String> {
     ))
 }
 
+/// 小端 u16 读取；越界返回 None。
+fn le_u16(data: &[u8], offset: usize) -> Option<u16> {
+    let end = offset.checked_add(2)?;
+    let bytes = data.get(offset..end)?;
+    Some(u16::from_le_bytes([bytes[0], bytes[1]]))
+}
+
+/// 计算镜像有效数据长度：镜像头 + 镜像体 + TLV 区。
+/// `imgtool --pad` 产物在其后还有 0xFF 填充和槽尾 trailer；
+/// 串口只传有效部分，trailer 由设备端 boot_set_pending() 写入。
+fn image_payload_len(image: &[u8]) -> Option<usize> {
+    const TLV_INFO_MAGIC: u16 = 0x6907;
+    const TLV_PROT_INFO_MAGIC: u16 = 0x6908;
+
+    if image.len() < IMAGE_HEADER_SIZE {
+        return None;
+    }
+
+    let hdr_size = u16::from_le_bytes([image[8], image[9]]) as usize;
+    let protect_tlv = u16::from_le_bytes([image[10], image[11]]) as usize;
+    let img_size = u32::from_le_bytes([image[12], image[13], image[14], image[15]]) as usize;
+
+    let mut tlv_start = hdr_size.checked_add(img_size)?;
+    if protect_tlv != 0 {
+        if le_u16(image, tlv_start)? != TLV_PROT_INFO_MAGIC {
+            return None;
+        }
+        tlv_start = tlv_start.checked_add(protect_tlv)?;
+    }
+
+    if le_u16(image, tlv_start)? != TLV_INFO_MAGIC {
+        return None;
+    }
+    let total = le_u16(image, tlv_start + 2)? as usize;
+    if total < 4 {
+        return None;
+    }
+
+    let end = tlv_start.checked_add(total)?;
+    if end > image.len() {
+        return None;
+    }
+    Some(end)
+}
+
 fn active_slot_text(slot: u8) -> &'static str {
     match slot {
         0 => "Primary 主槽",
@@ -795,10 +840,15 @@ pub fn run(
         ));
     }
 
-    let expected_version = image_version(&image).unwrap_or_default();
+    // `imgtool --pad` 产物 = [有效镜像][0xFF 填充][槽尾 trailer]。
+    // 串口只发送有效镜像部分；trailer 由 Bootloader 在 APPLY 时写入。
+    let payload_len = image_payload_len(&image).unwrap_or(image.len());
+    let image = &image[..payload_len];
+
+    let expected_version = image_version(image).unwrap_or_default();
     let total = image.len() as u32;
-    let crc = crc32_ieee(&image);
-    let digest: [u8; 32] = Sha256::digest(&image).into();
+    let crc = crc32_ieee(image);
+    let digest: [u8; 32] = Sha256::digest(image).into();
 
     let mut link = Link::new(serial, cancel);
     link.flush_input()
@@ -883,7 +933,7 @@ pub fn run(
         0.0,
         0,
         total as u64,
-        "发送 START，设备正在擦除 Secondary 副槽（可能需要数秒）...",
+        "发送 START，设备正在擦除 Secondary 副槽所需扇区（可能需要数秒）...",
         true,
     );
     let mut start_payload = Vec::with_capacity(8);
@@ -1237,5 +1287,26 @@ mod tests {
         image[21] = 2;
         image[22..24].copy_from_slice(&3u16.to_le_bytes());
         assert_eq!(image_version(&image).as_deref(), Some("1.2.3"));
+    }
+
+    #[test]
+    fn payload_len_stops_at_tlv_end() {
+        let mut image = vec![0u8; IMAGE_HEADER_SIZE];
+        image[8..10].copy_from_slice(&(IMAGE_HEADER_SIZE as u16).to_le_bytes());
+        image[10..12].copy_from_slice(&0u16.to_le_bytes());
+        image[12..16].copy_from_slice(&8u32.to_le_bytes());
+        image.extend_from_slice(&[0xAA; 8]);
+
+        // TLV 区：info header(magic + total=8) + 一个空 TLV(4B)
+        let tlv_start = IMAGE_HEADER_SIZE + 8;
+        image.extend_from_slice(&0x6907u16.to_le_bytes());
+        image.extend_from_slice(&8u16.to_le_bytes());
+        image.extend_from_slice(&0x0010u16.to_le_bytes());
+        image.extend_from_slice(&0u16.to_le_bytes());
+
+        // 模拟 imgtool --pad 的 0xFF 填充
+        image.extend_from_slice(&[0xFF; 32]);
+
+        assert_eq!(image_payload_len(&image), Some(tlv_start + 8));
     }
 }

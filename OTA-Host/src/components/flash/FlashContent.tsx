@@ -15,7 +15,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { SlotStatusPanel } from "@/components/ota/SlotStatusPanel";
 import { useFlashStore, type FlashAddressMode } from "@/stores/flashStore";
 import { useOtaStore } from "@/stores/otaStore";
 import { useSettingsStore } from "@/stores/settingsStore";
@@ -79,53 +78,6 @@ export function FlashContent() {
   const percent = progress ? Math.round(progress.progress * 100) : 0;
   const firmwareFileName = firmwarePath?.split(/[\\/]/).pop();
   const customAddressValid = addressMode !== "custom" || parseHexNumber(customAddress) !== null;
-
-  const flashRegions = chipInfo?.memory_regions.filter((region) => region.kind === "Flash") ?? [];
-  const flashStart =
-    flashRegions.length > 0 ? Math.min(...flashRegions.map((region) => region.address)) : null;
-  const flashEnd =
-    flashRegions.length > 0
-      ? Math.max(...flashRegions.map((region) => region.address + region.size))
-      : null;
-  const otaEnd = Math.max(
-    partition.secondaryBase + partition.slotSize,
-    partition.scratchBase + partition.scratchSize
-  );
-  const otaOutOfRange = flashEnd !== null && otaEnd > flashEnd;
-  const otaSegments = [
-    ...(flashStart !== null && partition.primaryBase > flashStart
-      ? [
-          {
-            name: "Bootloader 引导区",
-            kind: "引导区",
-            address: flashStart,
-            size: partition.primaryBase - flashStart,
-            badge: "bg-orange-500/20 text-orange-400",
-          },
-        ]
-      : []),
-    {
-      name: "Primary 主槽",
-      kind: "应用槽",
-      address: partition.primaryBase,
-      size: partition.slotSize,
-      badge: "bg-blue-500/20 text-blue-400",
-    },
-    {
-      name: "Secondary 副槽",
-      kind: "应用槽",
-      address: partition.secondaryBase,
-      size: partition.slotSize,
-      badge: "bg-blue-500/20 text-blue-400",
-    },
-    {
-      name: "Scratch 交换区",
-      kind: "交换区",
-      address: partition.scratchBase,
-      size: partition.scratchSize,
-      badge: "bg-green-500/20 text-green-400",
-    },
-  ];
 
   return (
     <div className="flash-content h-full space-y-4 overflow-y-auto p-4">
@@ -458,42 +410,6 @@ export function FlashContent() {
                 选择目标芯片后显示内存映射
               </div>
             )}
-
-            <div className="mt-3 border-t border-border pt-2">
-              <div className="mb-1 flex items-center justify-between">
-                <span className="text-[11px] font-medium">OTA 分区</span>
-                <span className="text-[10.5px] text-muted-foreground">与 sysflash 保持一致</span>
-              </div>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-muted-foreground">
-                    <th className="py-1 text-left font-medium">名称</th>
-                    <th className="py-1 text-left font-medium">类型</th>
-                    <th className="py-1 text-right font-medium">起始地址</th>
-                    <th className="py-1 text-right font-medium">大小</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {otaSegments.map((segment) => (
-                    <tr key={segment.name} className="border-t border-border">
-                      <td className="py-1">{segment.name}</td>
-                      <td className="py-1">
-                        <span className={cn("rounded px-1.5 py-0.5 text-xs", segment.badge)}>
-                          {segment.kind}
-                        </span>
-                      </td>
-                      <td className="py-1 text-right font-mono">{formatHex(segment.address)}</td>
-                      <td className="py-1 text-right font-mono">{formatBytes(segment.size)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {otaOutOfRange && (
-                <p className="mt-1 text-[10.5px] text-destructive">
-                  OTA 分区超出 {chipInfo?.name ?? "所选芯片"} 的 Flash 范围，请检查设置中心分区参数
-                </p>
-              )}
-            </div>
           </CardContent>
         </Card>
 
@@ -534,11 +450,6 @@ export function FlashContent() {
             )}
           </CardContent>
         </Card>
-
-        {/* 设备槽位（需探针，读取主/副槽 header 与 swap 状态） */}
-        <div className="lg:col-span-2">
-          <SlotStatusPanel />
-        </div>
       </div>
     </div>
   );

@@ -434,6 +434,21 @@
               <FileType>1</FileType>
               <FilePath>../Core/Src/app_ota.c</FilePath>
             </File>
+            <File>
+              <FileName>app_confirm.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/app_confirm.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_wdg.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/app_wdg.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_fault.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../Core/Src/app_fault.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

@@ -29,6 +29,8 @@
 #include "mcuboot_config/mcuboot_logging.h"
 #include "SEGGER_RTT.h"
 #include "app_ota.h"
+#include "app_confirm.h"
+#include "app_wdg.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -118,7 +120,9 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  /* Start the watchdog before clock and peripheral initialization so a hang
+   * in any init step also results in a reset (and a revert of a test image). */
+  app_wdg_init();
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -136,8 +140,6 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   {
-    int rc;
-
     /* Restore user peripheral: TIM2 timebase (1 kHz). */
     MX_TIM2_Init();
     HAL_TIM_Base_Start(&htim2);
@@ -155,16 +157,17 @@ int main(void)
     MCUBOOT_LOG_INF("=== Keil_OTA App v1.0.0 (build "__DATE__" "__TIME__") ===");
     MCUBOOT_LOG_INF("Running from primary slot, entry 0x08020200");
 
-    /* Mark this image as good. Skipped automatically when already
-     * confirmed. Build with APP_AUTO_CONFIRM 0 to test MCUboot's
-     * automatic revert of an unconfirmed test image. */
-#define APP_AUTO_CONFIRM 1
-#if APP_AUTO_CONFIRM
-    rc = boot_set_confirmed();
-    MCUBOOT_LOG_INF("boot_set_confirmed rc=%d", rc);
-#endif
+    /* Confirmation policy: a test image must prove itself before the
+     * image_ok trailer flag is written (see app_confirm.c). */
+    app_confirm_init();
 
     MCUBOOT_LOG_INF("keys: [p] mark pending + reboot, [s] swap status, [t] tick");
+    MCUBOOT_LOG_INF("test images confirm after %u ms of healthy runtime",
+                    (unsigned)APP_CONFIRM_SETTLE_MS);
+
+    /* Demo application: the initialization above is the self-test. A real
+     * product should call this after its own power-on self-test. */
+    app_confirm_mark_ready();
   }
   /* USER CODE END 2 */
 
@@ -190,6 +193,12 @@ int main(void)
         handle_command((uint8_t)key);
       }
     }
+
+    /* Confirm the running test image once it has proven itself. */
+    app_confirm_poll();
+
+    /* Main-loop heartbeat: IWDG resets the MCU if the loop stops running. */
+    app_wdg_feed();
 
     /* 1 Hz 心跳，便于确认 RTT 链路工作正常 */
     if (HAL_GetTick() - last_rtt_beat >= 1000U)
@@ -260,7 +269,9 @@ void SystemClock_Config(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
+  /* An unconfirmed test image must reset so MCUboot can revert; a confirmed
+   * image keeps the previous halt behaviour to avoid a reboot loop. */
+  app_confirm_mark_failed();
   __disable_irq();
   while (1)
   {
