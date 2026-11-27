@@ -10,8 +10,8 @@
 //!       -> END（CRC32/SHA-256 校验）-> APPLY（boot_set_pending + 复位）
 //!       -> 回连 QUERY 校验运行版本 -> EXIT（立即返回应用）。
 //!
-//! QUERY 在协议 v2 中返回 40 字节设备信息（协议/Boot 版本、UID、双槽版本、
-//! 槽容量、交换状态），"读取设备状态"与升级后校验共用该查询。
+//! QUERY 在协议 v3 中返回 44 字节设备信息（协议/Boot 版本、UID、双槽版本、
+//! 槽容量、交换状态、OTP 安全计数器），"读取设备状态"与升级后校验共用该查询。
 //!
 //! 串口接收/写 flash 全部在 Bootloader 内完成；App 只负责在收到 "OTA\n"
 //! 后置备份寄存器标志并复位。App 无法启动时 Boot 会常驻 OTA 模式。
@@ -42,9 +42,10 @@ const FRAME_ACK: u8 = 0x81;
 const FRAME_NACK: u8 = 0x82;
 const FRAME_STATUS: u8 = 0x83;
 
-const PROTOCOL_VERSION: u8 = 2;
+const PROTOCOL_VERSION: u8 = 3;
 const STATUS_LEN_V1: usize = 17;
 const STATUS_LEN_V2: usize = 40;
+const STATUS_LEN_V3: usize = 44;
 
 const ERR_NONE: u8 = 0;
 const ERR_OFFSET: u8 = 4;
@@ -69,9 +70,13 @@ const APPLY_TIMEOUT: Duration = Duration::from_secs(3);
 const DATA_RETRIES: u32 = 5;
 const MAX_RX_BUFFER: usize = 8192;
 
-/// MCUboot swap + application startup is allowed to finish before the host
-/// asks the device to re-enter the bootloader for version verification.
-const POST_APPLY_WAIT: Duration = Duration::from_millis(3500);
+/// MCUboot swap + application startup + the app's confirmation window must
+/// finish before the host asks the device to re-enter the bootloader for
+/// version verification. The scratch swap erases three 128 KB sectors, which
+/// can take several seconds, so this must stay well above the app's
+/// APP_CONFIRM_SETTLE_MS (currently 5 s); otherwise the reconnect reset
+/// interrupts the confirmation and MCUboot reverts the test image.
+const POST_APPLY_WAIT: Duration = Duration::from_millis(15000);
 const BOOT_HANDSHAKE_WAIT: Duration = Duration::from_millis(900);
 const VERIFY_ATTEMPTS: u32 = 3;
 
@@ -91,6 +96,8 @@ pub struct DeviceStatus {
     pub slot_size: u32,
     pub uid: String,
     pub boot_version: String,
+    /// 设备 OTP 安全计数器（协议 v3 起上报）；旧 Boot 为 None。
+    pub security_counter: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -141,6 +148,7 @@ enum Reply {
         slot_size: u32,
         uid: String,
         boot_version: u32,
+        security_counter: Option<u32>,
     },
 }
 
@@ -307,9 +315,28 @@ fn wait_reply(link: &mut Link, seq: u8, deadline: Instant) -> Result<Option<Repl
     }
 }
 
-/// STATUS v1 (17 B, old firmware) 或 v2 (40 B) 解析。
+/// STATUS v1 (17 B, old firmware) / v2 (40 B) / v3 (44 B) 解析。
 fn parse_status(payload: &[u8]) -> Option<Reply> {
     match payload.len() {
+        STATUS_LEN_V3 => Some(Reply::Status {
+            protocol_version: payload[0],
+            state: payload[1],
+            active_slot: payload[2],
+            swap_type: payload[3],
+            received: le_u32(payload, 4),
+            total: le_u32(payload, 8),
+            primary: le_u32(payload, 12),
+            secondary: le_u32(payload, 16),
+            slot_size: le_u32(payload, 20),
+            uid: format!(
+                "{:08X}{:08X}{:08X}",
+                le_u32(payload, 24),
+                le_u32(payload, 28),
+                le_u32(payload, 32)
+            ),
+            boot_version: le_u32(payload, 36),
+            security_counter: Some(le_u32(payload, 40)),
+        }),
         STATUS_LEN_V2 => Some(Reply::Status {
             protocol_version: payload[0],
             state: payload[1],
@@ -327,6 +354,7 @@ fn parse_status(payload: &[u8]) -> Option<Reply> {
                 le_u32(payload, 32)
             ),
             boot_version: le_u32(payload, 36),
+            security_counter: None,
         }),
         STATUS_LEN_V1 => Some(Reply::Status {
             protocol_version: 1,
@@ -340,6 +368,7 @@ fn parse_status(payload: &[u8]) -> Option<Reply> {
             slot_size: 0,
             uid: String::new(),
             boot_version: 0,
+            security_counter: None,
         }),
         _ => None,
     }
@@ -435,6 +464,7 @@ fn query(link: &mut Link, seq: &mut u8) -> Result<DeviceStatus, String> {
             slot_size,
             uid,
             boot_version,
+            security_counter,
         } => Ok(DeviceStatus {
             protocol_version,
             state,
@@ -448,6 +478,7 @@ fn query(link: &mut Link, seq: &mut u8) -> Result<DeviceStatus, String> {
             slot_size,
             uid,
             boot_version: format_boot_version(boot_version),
+            security_counter,
         }),
         Reply::Nack { reason, .. } => Err(format!("QUERY 被拒绝：{}", reason_text(reason))),
         _ => Err("QUERY 应答类型异常".to_string()),
@@ -489,6 +520,21 @@ fn image_version(image: &[u8]) -> Option<String> {
         image[21],
         u16::from_le_bytes([image[22], image[23]])
     ))
+}
+
+/// 解析 `major.minor[.revision]`；缺省 revision 视为 0，格式不符返回 None。
+fn parse_version(text: &str) -> Option<(u32, u32, u32)> {
+    let mut parts = text.trim().split('.');
+    let major = parts.next()?.parse::<u32>().ok()?;
+    let minor = parts.next()?.parse::<u32>().ok()?;
+    let revision = match parts.next() {
+        Some(part) => part.parse::<u32>().ok()?,
+        None => 0,
+    };
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((major, minor, revision))
 }
 
 /// 小端 u16 读取；越界返回 None。
@@ -576,6 +622,7 @@ fn reason_text(reason: u8) -> &'static str {
         6 => "设备上不存在 OTA 会话",
         7 => "设备忙",
         8 => "镜像超出副槽容量",
+        9 => "安全计数器无效（低于设备值或超出 OTP 容量）",
         _ => "未知错误",
     }
 }
@@ -819,6 +866,7 @@ pub fn run(
     app: &AppHandle,
     serial: &SerialState,
     image_path: &str,
+    deny_downgrade: bool,
     cancel: &AtomicBool,
 ) -> Result<SerialOtaResult, String> {
     let started = Instant::now();
@@ -897,6 +945,22 @@ pub fn run(
         ),
         true,
     );
+
+    if deny_downgrade {
+        if let (Some(img_v), Some(dev_text)) =
+            (parse_version(&expected_version), status.primary_version.as_deref())
+        {
+            if let Some(dev_v) = parse_version(dev_text) {
+                if img_v < dev_v {
+                    send_exit(&mut link, &mut seq);
+                    return Err(format!(
+                        "版本降级已阻止：镜像 v{expected_version} 低于设备主槽 v{dev_text}；\
+                         如确需降级，请关闭“禁止版本降级”"
+                    ));
+                }
+            }
+        }
+    }
 
     if status.state != STATE_IDLE {
         emit_progress(
@@ -1255,6 +1319,7 @@ mod tests {
                 slot_size,
                 uid,
                 boot_version,
+                security_counter,
             } => {
                 assert_eq!(protocol_version, PROTOCOL_VERSION);
                 assert_eq!(state, STATE_READY);
@@ -1267,7 +1332,22 @@ mod tests {
                 assert_eq!(slot_size, 0x0006_0000);
                 assert_eq!(uid, "AABBCCDD1122334455667788");
                 assert_eq!(boot_version, 0x0100_0000);
+                assert_eq!(security_counter, None);
             }
+            other => panic!("unexpected reply: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn status_v3_payload_reports_security_counter() {
+        let mut payload = vec![0u8; STATUS_LEN_V3];
+        payload[0] = PROTOCOL_VERSION;
+        payload[40..44].copy_from_slice(&7u32.to_le_bytes());
+
+        match parse_status(&payload).expect("v3 status") {
+            Reply::Status {
+                security_counter, ..
+            } => assert_eq!(security_counter, Some(7)),
             other => panic!("unexpected reply: {other:?}"),
         }
     }
@@ -1287,6 +1367,16 @@ mod tests {
         image[21] = 2;
         image[22..24].copy_from_slice(&3u16.to_le_bytes());
         assert_eq!(image_version(&image).as_deref(), Some("1.2.3"));
+    }
+
+    #[test]
+    fn parses_and_orders_versions() {
+        assert_eq!(parse_version("1.2.3"), Some((1, 2, 3)));
+        assert_eq!(parse_version("1.2"), Some((1, 2, 0)));
+        assert!(parse_version("1.0.9") < parse_version("1.0.10"));
+        assert!(parse_version("2.0.0") > parse_version("1.99.99"));
+        assert_eq!(parse_version("1.x"), None);
+        assert_eq!(parse_version("1.2.3.4"), None);
     }
 
     #[test]

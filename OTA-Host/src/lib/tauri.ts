@@ -48,6 +48,7 @@ export interface SignOptions {
   align: number;
   python: string;
   imgtool: string;
+  security_counter: Option<number>;
 }
 
 export interface SignResult {
@@ -340,6 +341,7 @@ export interface SerialOtaDeviceStatus {
   slot_size: number;
   uid: string;
   boot_version: string;
+  security_counter: Option<number>;
 }
 
 export interface SerialOtaResult {
@@ -362,8 +364,11 @@ export interface SerialOtaProgress {
   log: boolean;
 }
 
-export async function serialOtaFlash(imagePath: string): Promise<SerialOtaResult> {
-  return await invoke<SerialOtaResult>("serial_ota_flash", { imagePath });
+export async function serialOtaFlash(
+  imagePath: string,
+  denyDowngrade: boolean
+): Promise<SerialOtaResult> {
+  return await invoke<SerialOtaResult>("serial_ota_flash", { imagePath, denyDowngrade });
 }
 
 export async function serialOtaAbort(): Promise<void> {

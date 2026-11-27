@@ -17,10 +17,11 @@
  * SHA-256 and the MCUboot header magic, then marked pending. Signature
  * validation and the actual swap stay in MCUboot (boot_go).
  *
- * Protocol v2: QUERY returns a 40-byte STATUS frame with protocol/boot
- * versions, device UID, slot size and swap state. EXIT leaves the normal
- * application-requested OTA window so the host can verify the running image
- * after an upgrade without waiting for the idle timeout.
+ * Protocol v3: QUERY returns a 44-byte STATUS frame with protocol/boot
+ * versions, device UID, slot size, swap state and the OTP security
+ * counter (anti-rollback). EXIT leaves the normal application-requested
+ * OTA window so the host can verify the running image after an upgrade
+ * without waiting for the idle timeout.
  */
 #include <string.h>
 
@@ -30,6 +31,7 @@
 #include "flash_map_backend/flash_map_backend.h"
 #include "sysflash/sysflash.h"
 #include "bootutil/bootutil_public.h"
+#include "bootutil/security_cnt.h"
 #include "tinycrypt/sha256.h"
 #include "mcuboot_config/mcuboot_logging.h"
 
@@ -54,11 +56,11 @@
 #define OTA_FRAME_NACK          0x82
 #define OTA_FRAME_STATUS        0x83
 
-/* Protocol v2: STATUS carries boot/device information in addition to the
- * original state/offset/version fields. */
-#define OTA_PROTOCOL_VERSION    2U
+/* Protocol v3: STATUS additionally reports the device security counter
+ * (anti-rollback). */
+#define OTA_PROTOCOL_VERSION    3U
 #define OTA_BOOT_VERSION        0x01000000UL  /* 1.0.0 (0xMMmmRRRR) */
-#define OTA_STATUS_LEN          40U
+#define OTA_STATUS_LEN          44U
 
 /* ACK code / NACK reason */
 #define OTA_ERR_NONE            0
@@ -70,6 +72,7 @@
 #define OTA_ERR_NO_SESSION      6
 #define OTA_ERR_BUSY            7
 #define OTA_ERR_TOO_BIG         8
+#define OTA_ERR_SEC_CNT         9
 
 #define OTA_STATE_IDLE          0
 #define OTA_STATE_RECEIVING     1
@@ -79,7 +82,7 @@
 #define OTA_DATA_MIN            8
 /* TYPE + SEQ + LEN + PAYLOAD + CRC16 */
 #define OTA_MAX_FRAME           (5 + OTA_MAX_PAYLOAD + 2)
-/* Device frames only carry small payloads (ACK/NACK/STATUS v2 = 40 B). */
+/* Device frames only carry small payloads (ACK/NACK/STATUS v3 = 44 B). */
 #define OTA_TX_MAX_PAYLOAD      64
 
 /* MCUboot image header magic, little endian at secondary slot offset 0. */
@@ -252,6 +255,57 @@ static uint32_t slot_version(uint8_t area_id)
     flash_area_close(fa);
     return ver;
 }
+
+#ifdef MCUBOOT_HW_ROLLBACK_PROT
+/*
+ * Check the image's signature-protected security counter against the OTP
+ * counter before accepting the transfer. MCUboot repeats this check (with
+ * full signature validation) before the swap; doing it here lets the host
+ * get a clear error instead of a successful upload followed by a device
+ * that refuses to boot the image.
+ */
+static int ota_image_security_ok(const struct flash_area *fa)
+{
+    struct image_header hdr;
+    struct image_tlv_iter it;
+    uint32_t off;
+    uint16_t len;
+    uint16_t type;
+    uint32_t img_cnt;
+    fih_int nv_cnt;
+    fih_ret frc;
+
+    if (flash_area_read(fa, 0, &hdr, sizeof(hdr)) != 0 ||
+        hdr.ih_magic != OTA_IMAGE_MAGIC ||
+        hdr.ih_protect_tlv_size == 0U) {
+        return -1;
+    }
+    if (bootutil_tlv_iter_begin(&it, &hdr, fa, IMAGE_TLV_SEC_CNT, true) != 0 ||
+        bootutil_tlv_iter_next(&it, &off, &len, &type) != 0 ||
+        type != IMAGE_TLV_SEC_CNT ||
+        len != sizeof(img_cnt) ||
+        flash_area_read(fa, off, &img_cnt, sizeof(img_cnt)) != 0) {
+        return -1;
+    }
+
+    frc = boot_nv_security_counter_get(0, &nv_cnt);
+    if (FIH_NOT_EQ(frc, FIH_SUCCESS)) {
+        return -1;
+    }
+    if (img_cnt < (uint32_t)fih_int_decode(nv_cnt)) {
+        MCUBOOT_LOG_ERR("OTA security counter %u < device %u",
+                        (unsigned)img_cnt, (unsigned)fih_int_decode(nv_cnt));
+        return -1;
+    }
+    frc = boot_nv_security_counter_is_update_possible(0, img_cnt);
+    if (FIH_NOT_EQ(frc, FIH_SUCCESS)) {
+        MCUBOOT_LOG_ERR("OTA security counter %u exceeds OTP capacity",
+                        (unsigned)img_cnt);
+        return -1;
+    }
+    return 0;
+}
+#endif
 
 static void ota_session_reset(void)
 {
@@ -439,6 +493,14 @@ static void ota_handle_end(uint8_t seq, const uint8_t *p, uint16_t len)
         return;
     }
 
+#ifdef MCUBOOT_HW_ROLLBACK_PROT
+    if (ota_image_security_ok(img_fa) != 0) {
+        ota_session_reset();
+        ota_nack(seq, OTA_ERR_SEC_CNT, expected);
+        return;
+    }
+#endif
+
     ota_state = OTA_STATE_READY;
     ota_ack(seq, OTA_ERR_NONE, img_total);
     MCUBOOT_LOG_INF("OTA image verified, ready to apply");
@@ -480,13 +542,13 @@ static void ota_handle_abort(uint8_t seq)
 }
 
 /*
- * STATUS v2 layout (40 bytes, little endian):
+ * STATUS v3 layout (44 bytes, little endian):
  *   [0]  protocol version        [1]  OTA state
  *   [2]  active slot (0=primary) [3]  boot_swap_type()
  *   [4]  session offset          [8]  session total
  *   [12] primary version         [16] secondary version
  *   [20] slot size               [24] device UID (3 x u32)
- *   [36] bootloader version
+ *   [36] bootloader version      [40] device security counter (OTP)
  */
 static void ota_handle_query(uint8_t seq)
 {
@@ -496,6 +558,9 @@ static void ota_handle_query(uint8_t seq)
     uint32_t secondary_ver;
     uint32_t slot_size = 0;
     uint32_t swap_type;
+    uint32_t sec_cnt = 0;
+    fih_int nv_cnt;
+    fih_ret frc;
 
     primary_ver = slot_version(FLASH_AREA_IMAGE_PRIMARY(0));
     secondary_ver = slot_version(FLASH_AREA_IMAGE_SECONDARY(0));
@@ -505,6 +570,10 @@ static void ota_handle_query(uint8_t seq)
         flash_area_close(fa);
     }
     swap_type = (uint32_t)boot_swap_type();
+    frc = boot_nv_security_counter_get(0, &nv_cnt);
+    if (FIH_EQ(frc, FIH_SUCCESS)) {
+        sec_cnt = (uint32_t)fih_int_decode(nv_cnt);
+    }
 
     p[0] = (uint8_t)OTA_PROTOCOL_VERSION;
     p[1] = ota_state;
@@ -520,6 +589,7 @@ static void ota_handle_query(uint8_t seq)
     wr_le32(&p[28], HAL_GetUIDw1());
     wr_le32(&p[32], HAL_GetUIDw2());
     wr_le32(&p[36], OTA_BOOT_VERSION);
+    wr_le32(&p[40], sec_cnt);
 
     ota_send(OTA_FRAME_STATUS, seq, p, sizeof(p));
 }

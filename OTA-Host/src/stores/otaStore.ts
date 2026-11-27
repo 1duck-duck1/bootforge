@@ -26,12 +26,15 @@ export const DEFAULT_SIGN_FORM: SignForm = {
   inputPath: "",
   outputPath: "",
   version: "1.0.0",
+  securityCounter: "0",
 };
 
 export interface SignForm {
   inputPath: string;
   outputPath: string;
   version: string;
+  /** 防回滚安全计数器；0 表示不递增（同安全等级重刷）。 */
+  securityCounter: string;
 }
 
 interface OtaStore {
@@ -137,6 +140,16 @@ export const useOtaStore = create<OtaStore>()(
           addLog("warn", "请填写输出路径");
           return;
         }
+        const counterText = (form.securityCounter ?? "0").trim();
+        const counter = Number(counterText);
+        if (!/^\d+$/.test(counterText) || counter > 0xFFFFFFFF) {
+          addLog("warn", "安全计数器必须是 0..4294967295 的整数");
+          return;
+        }
+        if (counter > 4096) {
+          addLog("warn", "安全计数器超出设备 OTP 容量（0..4096）");
+          return;
+        }
 
         set({ signing: true, signLogs: [], result: null });
 
@@ -156,6 +169,7 @@ export const useOtaStore = create<OtaStore>()(
             align: partition.align,
             python: toolchain.python,
             imgtool: toolchain.imgtool,
+            security_counter: counter,
           });
 
           set({ result });

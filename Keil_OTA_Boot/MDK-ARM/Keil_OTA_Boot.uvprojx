@@ -645,6 +645,11 @@
               <FilePath>../MCUBoot/port/keys.c</FilePath>
             </File>
             <File>
+              <FileName>boot_nv_counter.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../MCUBoot/port/boot_nv_counter.c</FilePath>
+            </File>
+            <File>
               <FileName>crypto_stubs.c</FileName>
               <FileType>1</FileType>
               <FilePath>../MCUBoot/port/crypto_stubs.c</FilePath>

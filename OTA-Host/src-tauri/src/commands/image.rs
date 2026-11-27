@@ -388,16 +388,25 @@ fn read_slot(session: &mut probe_rs::Session, query: &SlotQuery) -> Result<SlotS
 
     let trailer_valid = trailer[24..40] == BOOT_MAGIC;
     let swap_raw = trailer[0];
+    let image_ok = trailer_valid.then(|| decode_flag(trailer[16])).flatten();
+    let copy_done = trailer_valid.then(|| decode_flag(trailer[8])).flatten();
     let swap_info = if trailer_valid { Some(swap_raw as u32) } else { None };
-    let swap_state = match swap_raw {
-        1 => "none（无待处理交换）",
-        2 => "test（测试升级已完成，待确认）",
-        3 => "perm（永久升级）",
-        4 => "revert（回滚中）",
-        5 => "fail（交换失败）",
-        _ => "unset（无交换记录）",
-    }
-    .to_string();
+    // swap_type 是上一次交换留下的字段，只看它会把“已确认的 test 镜像”
+    // 误报成“待确认”；trailer 未初始化时也不应解释原始字节。
+    let swap_state = if !trailer_valid {
+        "—（trailer 未初始化）".to_string()
+    } else {
+        match (swap_raw, image_ok) {
+            (1, _) => "none（无待处理交换）".to_string(),
+            (2, Some(true)) => "test（历史 swap_type；本槽已确认）".to_string(),
+            (2, _) => "test（测试升级已完成，待确认）".to_string(),
+            (3, _) => "perm（永久升级）".to_string(),
+            (4, Some(true)) => "revert（历史 swap_type；本槽已确认）".to_string(),
+            (4, _) => "revert（回滚中）".to_string(),
+            (5, _) => "fail（交换失败）".to_string(),
+            _ => "unset（无交换记录）".to_string(),
+        }
+    };
 
     let message = if header_valid && trailer_valid {
         "有效镜像，trailer 已初始化".to_string()
@@ -418,8 +427,8 @@ fn read_slot(session: &mut probe_rs::Session, query: &SlotQuery) -> Result<SlotS
         image_size: header_valid.then(|| le_u32(&header, 12).unwrap_or(0)),
         header_size: header_valid.then(|| le_u16(&header, 8).unwrap_or(0)),
         trailer_valid,
-        image_ok: trailer_valid.then(|| decode_flag(trailer[16])).flatten(),
-        copy_done: trailer_valid.then(|| decode_flag(trailer[8])).flatten(),
+        image_ok,
+        copy_done,
         swap_info,
         swap_state,
         message,

@@ -38,6 +38,21 @@
 #define MCUBOOT_VALIDATE_PRIMARY_SLOT
 
 /* -------------------------------------------------------------------- *
+ *  Anti-rollback (downgrade protection)
+ *
+ *  Each signed image carries a monotonic security counter in the
+ *  signature-protected TLV area (imgtool --security-counter N). The
+ *  bootloader compares it with the device value stored in OTP and
+ *  refuses images whose counter is lower.
+ *
+ *  The counter is updated by MCUboot only after a test image has been
+ *  confirmed, so a failed upgrade can still revert to the previous image.
+ * -------------------------------------------------------------------- */
+#define MCUBOOT_HW_ROLLBACK_PROT
+/* Reject counters that cannot be stored in the OTP counter window. */
+#define MCUBOOT_HW_ROLLBACK_PROT_COUNTER_LIMITED
+
+/* -------------------------------------------------------------------- *
  *  Flash abstraction
  * -------------------------------------------------------------------- */
 

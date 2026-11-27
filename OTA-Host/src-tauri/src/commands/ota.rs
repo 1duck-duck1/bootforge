@@ -16,6 +16,10 @@ pub struct SignOptions {
     pub align: u32,
     pub python: String,
     pub imgtool: String,
+    /// 防回滚安全计数器（imgtool --security-counter）。设备开启
+    /// MCUBOOT_HW_ROLLBACK_PROT 后该 TLV 为必选项。
+    #[serde(default)]
+    pub security_counter: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -42,8 +46,13 @@ pub async fn sign_firmware(options: SignOptions, app: AppHandle) -> Result<SignR
             .arg("--slot-size")
             .arg(format!("0x{:x}", options.slot_size))
             .arg("--version")
-            .arg(&options.version)
-            .arg("--pad")
+            .arg(&options.version);
+
+        if let Some(counter) = options.security_counter {
+            cmd.arg("--security-counter").arg(counter.to_string());
+        }
+
+        cmd.arg("--pad")
             .arg(&options.input_path)
             .arg(&options.output_path)
             .stdout(Stdio::piped())
@@ -56,16 +65,21 @@ pub async fn sign_firmware(options: SignOptions, app: AppHandle) -> Result<SignR
             cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         }
 
+        let counter_log = match options.security_counter {
+            Some(counter) => format!(" --security-counter {}", counter),
+            None => String::new(),
+        };
         let _ = app.emit(
             "ota-sign-log",
             format!(
-                "$ python \"{}\" sign --key \"{}\" --header-size 0x{:x} --pad-header --align {} --slot-size 0x{:x} --version {} --pad \"{}\" \"{}\"",
+                "$ python \"{}\" sign --key \"{}\" --header-size 0x{:x} --pad-header --align {} --slot-size 0x{:x} --version {}{} --pad \"{}\" \"{}\"",
                 options.imgtool,
                 options.key_path,
                 options.header_size,
                 options.align,
                 options.slot_size,
                 options.version,
+                counter_log,
                 options.input_path,
                 options.output_path
             ),

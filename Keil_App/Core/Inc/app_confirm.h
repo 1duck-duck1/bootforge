@@ -25,9 +25,11 @@
 #define APP_CONFIRM_READY_TIMEOUT_MS  30000U
 #endif
 
-/* Healthy runtime required before the image is marked good (ms). */
+/* Healthy runtime required before the image is marked good (ms).
+ * Must stay above the IWDG timeout (4 s) so a hang is caught before the
+ * image is confirmed. */
 #ifndef APP_CONFIRM_SETTLE_MS
-#define APP_CONFIRM_SETTLE_MS         10000U
+#define APP_CONFIRM_SETTLE_MS         5000U
 #endif
 
 /* Read the swap type once the MCUboot library is usable (after boot). */

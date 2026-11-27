@@ -22,6 +22,7 @@ impl Drop for RunningGuard {
 pub async fn serial_ota_flash(
     app: AppHandle,
     image_path: String,
+    deny_downgrade: bool,
     state: State<'_, AppState>,
 ) -> Result<SerialOtaResult, String> {
     if state.serial_ota.running.swap(true, Ordering::AcqRel) {
@@ -42,7 +43,7 @@ pub async fn serial_ota_flash(
     tokio::task::spawn_blocking(move || {
         // 读线程最多阻塞 50ms，留出余量确保它已退出
         std::thread::sleep(Duration::from_millis(120));
-        ota::run(&app, &serial, &image_path, &ota_state.cancel)
+        ota::run(&app, &serial, &image_path, deny_downgrade, &ota_state.cancel)
     })
     .await
     .map_err(|e| format!("串口 OTA 任务异常: {e}"))?

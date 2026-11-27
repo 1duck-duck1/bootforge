@@ -1,19 +1,17 @@
-import { SignPanel } from "@/components/ota/SignPanel";
+import { LogPanel } from "@/components/log/LogPanel";
 import { SerialOtaPanel } from "@/components/ota/SerialOtaPanel";
-import { SlotStatusPanel } from "@/components/ota/SlotStatusPanel";
+import { SerialOtaToolbar } from "@/components/ota/SerialOtaToolbar";
 
 export function OtaMode() {
   return (
-    <div className="grid h-full min-h-0 grid-cols-2 gap-2 p-2">
-      <div className="surface-card min-h-0 overflow-hidden rounded-xl">
-        <SignPanel />
+    <div className="surface-strong relative flex h-full min-h-0 flex-col gap-2 overflow-hidden rounded-[14px] p-2">
+      <SerialOtaToolbar />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="p-2">
+          <SerialOtaPanel />
+        </div>
       </div>
-      <div className="flex min-h-0 flex-col gap-2 overflow-y-auto pr-0.5">
-        {/* 串口 OTA（无需探针，主升级路径） */}
-        <SerialOtaPanel />
-        {/* 设备双槽状态（需探针） */}
-        <SlotStatusPanel />
-      </div>
+      <LogPanel className="mx-0 mb-0" />
     </div>
   );
 }

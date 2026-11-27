@@ -6,7 +6,6 @@ import {
   FileUp,
   FolderOpen,
   Loader2,
-  PenLine,
   RefreshCw,
   ShieldCheck,
   XCircle,
@@ -19,9 +18,9 @@ import { cn, formatBytes } from "@/lib/utils";
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="flex flex-col gap-1 text-xs">
-      <span className="text-muted-foreground">{label}</span>
-      {children}
+    <label className="flex items-center gap-2 text-xs">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <div className="min-w-0 flex-1">{children}</div>
     </label>
   );
 }
@@ -67,18 +66,13 @@ export function SignPanel() {
   const hashBad = imageInfo?.hash_match === false;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto p-4">
-      <div className="flex items-center gap-2">
-        <PenLine className="h-4 w-4 text-primary" />
-        <h2 className="text-sm font-semibold">imgtool 签名</h2>
-      </div>
-
-      <Field label="固件文件（.bin）">
+    <div className="flex flex-col gap-3">
+      <Field label="固件文件">
         <div className="flex gap-2">
           <Input
             value={form.inputPath}
             onChange={(e) => setForm({ inputPath: e.target.value })}
-            placeholder="点击右侧按钮选择，或直接输入路径"
+            placeholder="选择或输入 .bin 路径"
             className="terminal-font text-xs"
             spellCheck={false}
           />
@@ -89,30 +83,46 @@ export function SignPanel() {
         </div>
       </Field>
 
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="版本号">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <label className="flex shrink-0 items-center gap-1.5 text-xs">
+          <span className="text-muted-foreground">版本号</span>
           <Input
             value={form.version}
             onChange={(e) => setForm({ version: e.target.value })}
             placeholder="1.0.0"
-            className="terminal-font text-xs"
+            className="terminal-font w-24 text-xs"
             spellCheck={false}
           />
-        </Field>
-        <Field label="输出（签名后固件）">
-          <div className="flex gap-2">
+        </label>
+        <label
+          className="flex shrink-0 items-center gap-1.5 text-xs"
+          title="0–4096，且必须 ≥ 设备当前安全计数，低于会被 Boot 拒绝"
+        >
+          <span className="text-muted-foreground">安全计数器</span>
+          <Input
+            value={form.securityCounter ?? "0"}
+            onChange={(e) => setForm({ securityCounter: e.target.value })}
+            placeholder="0"
+            className="terminal-font w-20 text-xs"
+            inputMode="numeric"
+            spellCheck={false}
+          />
+        </label>
+        <label className="flex min-w-0 flex-1 items-center gap-1.5 text-xs">
+          <span className="shrink-0 text-muted-foreground">签名后固件</span>
+          <div className="flex min-w-0 flex-1 gap-2">
             <Input
               value={form.outputPath}
               onChange={(e) => setForm({ outputPath: e.target.value })}
               placeholder="xxx_signed.bin"
-              className="terminal-font text-xs"
+              className="terminal-font min-w-0 flex-1 text-xs"
               spellCheck={false}
             />
             <Button variant="outline" size="sm" className="h-9 shrink-0" onClick={() => void pickOutput()}>
               <FolderOpen className="h-3.5 w-3.5" />
             </Button>
           </div>
-        </Field>
+        </label>
       </div>
 
       <Button onClick={() => void sign()} disabled={signing || !form.inputPath} className="w-full">
@@ -232,6 +242,12 @@ export function SignPanel() {
                 </span>
                 <span>
                   文件 <span className="terminal-font text-foreground">{formatBytes(imageInfo.file_size)}</span>
+                </span>
+                <span>
+                  安全计数{" "}
+                  <span className="terminal-font text-foreground">
+                    {imageInfo.security_counter ?? "缺失"}
+                  </span>
                 </span>
               </div>
 

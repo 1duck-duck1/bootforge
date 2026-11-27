@@ -28,7 +28,7 @@ interface SerialOtaStore {
   /** 面板内手动选择的固件；为空时退回签名结果/表单路径 */
   imagePath: string | null;
   setImagePath: (path: string | null) => void;
-  start: (imagePath: string) => Promise<void>;
+  start: (imagePath: string, denyDowngrade: boolean) => Promise<void>;
   readDeviceInfo: () => Promise<void>;
   cancel: () => Promise<void>;
   clear: () => void;
@@ -49,7 +49,7 @@ export const useSerialOtaStore = create<SerialOtaStore>((set, get) => ({
 
   setImagePath: (path) => set({ imagePath: path }),
 
-  start: async (imagePath) => {
+  start: async (imagePath, denyDowngrade) => {
     if (get().running) return;
     const addLog = useLogStore.getState().addLog;
 
@@ -113,7 +113,7 @@ export const useSerialOtaStore = create<SerialOtaStore>((set, get) => ({
         }));
       });
 
-      const result = await serialOtaFlash(imagePath);
+      const result = await serialOtaFlash(imagePath, denyDowngrade);
       const summary = `${(result.total_size / 1024).toFixed(1)} KB · CRC32 ${result.crc32
         .toString(16)
         .toUpperCase()
